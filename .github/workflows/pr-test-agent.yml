@@ -28,7 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  # The base branch by name: pull_request.base.sha can lag behind the branch tip,
+  # and the tooling and diff base must be the current base branch.
+  BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
@@ -67,7 +69,7 @@ jobs:
       - name: Check out agent tooling from the base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           path: .trusted-base
           persist-credentials: false
           sparse-checkout: |
@@ -97,7 +99,7 @@ jobs:
 
       - name: Plan which tests the change needs
         id: plan
-        run: node "$CLI" plan --dir "$RESULTS" --base "$BASE_SHA" --head "$HEAD_SHA"
+        run: node "$CLI" plan --dir "$RESULTS" --base "origin/$BASE_REF" --head "$HEAD_SHA"
 
       - name: Pin agent configuration to the base branch
         if: steps.plan.outputs.needs_tests == 'true'
@@ -300,7 +302,7 @@ jobs:
       - name: Check out report tooling from the base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           path: trusted
           persist-credentials: false
           sparse-checkout: scripts/pr-agent

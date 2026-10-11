@@ -27,9 +27,8 @@ Test at the module's public surface, with the IO edge replaced:
 
 ## What to assert
 
-- Status code **and** body for every HTTP case; the repository call arguments when the router transforms input.
+The general rules are in `unit-test-quality`. Backend specifics:
+- Status code **and** body for every HTTP case. Also the repository call arguments when the router transforms input.
 - Validation: a rejected payload returns 422 and never reaches the repository.
-- Failure paths: a rejecting fake produces the documented error status (Express 5 forwards async errors to the app error handler).
-- Expected values are literals from the fixture or the spec, written out, so the test disagrees with a wrong implementation.
-
-Keep each test independent: build fakes inside the test or a `setup()` helper, and call `vi.restoreAllMocks()` in `afterEach` when spying on real objects.
+- Failure paths: a rejecting fake produces the documented error status. Express 5 forwards async errors to the app error handler.
+- Build fakes inside the test or a `setup()` helper. Call `vi.restoreAllMocks()` in `afterEach` when spying on real objects.

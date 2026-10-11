@@ -46,6 +46,7 @@ The same agent and skills were also used to add missing tests to the existing ap
 | --- | --- | --- |
 | Custom agent | [.claude/agents/test-engineer.md](.claude/agents/test-engineer.md) | Analyse → write → verify → report, ending in a fixed JSON report |
 | `pr-change-analysis` skill | [.claude/skills/](.claude/skills) | Decides per changed file: write, update or skip, with a reason |
+| `unit-test-quality` skill | same | The definition of a well-constructed unit test, applied to every test written |
 | `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions and seams (fakes, mocks, fixtures) |
 | `test-verification` skill | same | Red/green loop, and what counts as a valid green |
 | Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Orchestration and trust boundaries |
@@ -57,6 +58,18 @@ The same agent and skills were also used to add missing tests to the existing ap
 3. **Guard:** only test files may have changed.
 4. **Verify:** the workflow re-runs typecheck and the full suites with coverage.
 5. **Publish:** commit to the PR branch and update the comment.
+
+**What counts as a well-constructed unit test.** The rule is defined once, in [`unit-test-quality`](.claude/skills/unit-test-quality/SKILL.md). The agent must meet it for every test it writes, and the other skills refer to it. A test:
+1. proves one behaviour, and its name reads as a specification
+2. goes through the public interface only
+3. fails for the right reason: removing the source line it relies on turns it red
+4. uses expected values that are independent literals, with strict matchers
+5. covers the edges (boundaries, invalid input, error and empty states), not just the happy path
+6. fakes only at input and output boundaries
+7. is isolated and deterministic
+8. reads as arrange, act, assert, with no logic and nothing skipped
+
+The tests added to the existing app (the coverage table above) were written to these principles, and the rule now makes them explicit for the agent.
 
 ## 4. Example run
 

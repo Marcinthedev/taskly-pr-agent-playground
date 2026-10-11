@@ -25,9 +25,6 @@ Then typecheck each touched area; type errors in your tests are test mistakes.
 
 ## A green that counts
 
-- Every assertion states an expected value from the spec, fixture or diff, written as a literal.
-- The suite contains the tests you wrote, unskipped and unfocused: no `.skip`, `.only`, `.todo` or `it.fails`.
-- Assertions keep their full strength: make a test pass by fixing setup, keeping its matcher as strict as when you wrote it.
-- The test is deterministic: fake timers for time, fakes for network and database.
+A green run counts only when every touched test also meets the `unit-test-quality` rules. Fix a red test by correcting its setup or its understanding of the behaviour. Keep its matcher as strict as when you wrote it. For each new test, apply rule 3: name the source line that makes it pass.
 
 Done when every touched file is green in a focused run, every touched area typechecks, and every reverted file is listed in `skipped` with its reason.

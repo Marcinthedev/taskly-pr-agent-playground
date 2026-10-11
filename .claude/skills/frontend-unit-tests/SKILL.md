@@ -26,6 +26,8 @@ For a mutation hook, seed the cache with `client.setQueryData(todoKeys.list, [..
 
 ## What to assert
 
+The general rules are in `unit-test-quality`. Frontend specifics:
+
 - Behaviour a user or caller observes: rendered text, enabled/disabled controls, callbacks fired with the right arguments, cache contents.
 - Query by role and accessible name first (`getByRole('button', { name: 'Delete task' })`), text second; `data-testid` only for the mocked `Alert`.
 - UI copy uses typographic characters (`…`, `“ ”`); copy strings from the source file.

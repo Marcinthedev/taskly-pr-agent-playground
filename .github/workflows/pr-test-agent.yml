@@ -347,9 +347,10 @@ jobs:
           fi
           node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch"
           git apply --index "$RESULTS/tests.patch"
+          usage="$(node "$CLI" usage --dir "$RESULTS")"
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -q -m "test: add unit tests for changed code [pr-test-agent]"
+              commit -q -m "test: add unit tests for changed code [pr-test-agent]" -m "Agent usage: ${usage}"
           git push -q origin "HEAD:refs/heads/$HEAD_REF"
           echo "status=committed" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

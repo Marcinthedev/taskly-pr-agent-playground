@@ -2,12 +2,50 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  formatUsage,
   REPORT_MARKER,
   renderReport,
   sanitizeAgentText,
   summarizeCoverage,
   summarizeVitest,
 } from "./report.mjs";
+
+const usage = {
+  costUsd: 0.4213,
+  turns: 23,
+  durationMs: 312000,
+  inputTokens: 1200,
+  outputTokens: 18000,
+  cacheWriteTokens: 40000,
+  cacheReadTokens: 610000,
+};
+
+test("formatUsage summarises turns, tokens, estimated cost and duration on one line", () => {
+  assert.equal(
+    formatUsage(usage),
+    "23 turns · tokens: 1.2k in, 18k out, 610k cache read, 40k cache write · ~$0.42 · 5m 12s",
+  );
+});
+
+test("formatUsage leaves out unknown values and handles no data", () => {
+  assert.equal(formatUsage({ ...usage, costUsd: null, cacheReadTokens: null, cacheWriteTokens: null }),
+    "23 turns · tokens: 1.2k in, 18k out · 5m 12s");
+  assert.equal(formatUsage(null), "not reported");
+});
+
+test("renderReport shows agent usage when it is known", () => {
+  const markdown = renderReport({
+    plan: { needsTests: true, areas: [], targets: [], ignored: [], changedTests: [] },
+    decision: null,
+    guard: null,
+    verification: {},
+    usage,
+    outcome: { status: "skipped", reason: "nothing to do" },
+    runUrl: "https://github.com/o/r/actions/runs/9",
+  });
+
+  assert.match(markdown, /\*\*Agent usage:\*\* 23 turns · tokens: 1\.2k in, 18k out/);
+});
 
 const vitestJson = {
   numTotalTests: 4,

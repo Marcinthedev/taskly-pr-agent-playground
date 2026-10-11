@@ -37,6 +37,27 @@ export function extractDecision(text) {
 }
 
 /** The final `result` text from claude-code-action's execution file. */
+/**
+ * Cost and size of the agent run, from the `result` entry Claude Code writes
+ * at the end of its execution log. With a subscription token the cost is the
+ * API-equivalent estimate Claude Code reports, not an invoice amount.
+ */
+export function agentUsage(log) {
+  if (!Array.isArray(log)) return null;
+  const result = log.findLast((message) => message?.type === "result");
+  if (!result) return null;
+  const number = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  return {
+    costUsd: number(result.total_cost_usd),
+    turns: number(result.num_turns),
+    durationMs: number(result.duration_ms),
+    inputTokens: number(result.usage?.input_tokens),
+    outputTokens: number(result.usage?.output_tokens),
+    cacheWriteTokens: number(result.usage?.cache_creation_input_tokens),
+    cacheReadTokens: number(result.usage?.cache_read_input_tokens),
+  };
+}
+
 export function finalAgentText(log) {
   if (!Array.isArray(log)) return "";
   const result = log.findLast((message) => message?.type === "result");

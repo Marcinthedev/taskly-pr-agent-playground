@@ -35,6 +35,36 @@ export function summarizeCoverage(summary) {
   };
 }
 
+function compactNumber(value) {
+  const trim = (number) => String(Math.round(number * 10) / 10);
+  if (value >= 1_000_000) return `${trim(value / 1_000_000)}M`;
+  if (value >= 1_000) return `${trim(value / 1_000)}k`;
+  return String(value);
+}
+
+function duration(ms) {
+  const seconds = Math.round(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+/** One line for the PR comment and the commit message. */
+export function formatUsage(usage) {
+  if (!usage) return "not reported";
+  const parts = [];
+  if (usage.turns !== null) parts.push(`${usage.turns} turns`);
+  const tokens = [
+    [usage.inputTokens, "in"],
+    [usage.outputTokens, "out"],
+    [usage.cacheReadTokens, "cache read"],
+    [usage.cacheWriteTokens, "cache write"],
+  ].filter(([value]) => value !== null);
+  if (tokens.length) parts.push(`tokens: ${tokens.map(([value, label]) => `${compactNumber(value)} ${label}`).join(", ")}`);
+  if (usage.costUsd !== null) parts.push(`~$${usage.costUsd.toFixed(2)}`);
+  if (usage.durationMs !== null) parts.push(duration(usage.durationMs));
+  return parts.length ? parts.join(" · ") : "not reported";
+}
+
 export function sanitizeAgentText(value, maxLength = 500) {
   const text = String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -81,8 +111,9 @@ function outcomeLine(outcome, guard) {
   }
 }
 
-export function renderReport({ plan, decision, guard, verification = {}, outcome, runUrl }) {
+export function renderReport({ plan, decision, guard, verification = {}, usage = null, outcome, runUrl }) {
   const lines = [REPORT_MARKER, "## 🧪 PR Test Agent", "", `**Outcome:** ${outcomeLine(outcome, guard)}`, ""];
+  if (usage) lines.push(`**Agent usage:** ${formatUsage(usage)}`, "");
 
   if (decision) {
     lines.push("### Agent decision", "");

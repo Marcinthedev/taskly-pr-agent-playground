@@ -20,7 +20,7 @@ The same agent and skills were also used to add missing tests to the existing ap
   - Agent configuration and tooling always come from the base branch, so a PR can't weaken its own checks.
 - **Sandboxed execution.** Dependency installs and all test runs execute as a separate OS user, with an empty environment and no network.
 - **Split trust.** The trigger is `pull_request`, not `pull_request_target`. The job that runs PR code has a read-only token. The job with write access never runs PR code.
-- **Commit to the PR branch.** The tests appear in the same PR, where the author reviews them before merging.
+- **Commit to the PR branch, not a separate PR.** The agent changes test files only, so the risk is low. The tests appear in the same PR, where the author reviews them before merging. A separate "tests for #N" PR would add a review step, and on GitHub a PR opened with `GITHUB_TOKEN` doesn't trigger CI, so it would need a GitHub App. That approach fits better for an agent that changes application code (see section 7).
 
 ## 2. Running the PR workflow
 
@@ -38,6 +38,7 @@ The same agent and skills were also used to add missing tests to the existing ap
 - one comment, updated in place, also copied to the job summary
 - a `pr-agent-results` artifact with the raw plan, decision, guard, test and coverage files
 - a check that turns red when the agent's tests are rejected
+- the agent's usage (turns, input, output and cache tokens, estimated cost, duration) in the comment, and in the message of the agent's commit
 
 ## 3. Where the agent and skills are defined and how they are used
 
@@ -48,7 +49,7 @@ The same agent and skills were also used to add missing tests to the existing ap
 | `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions and seams (fakes, mocks, fixtures) |
 | `test-verification` skill | same | Red/green loop, and what counts as a valid green |
 | Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Orchestration and trust boundaries |
-| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Plan, guard, sandboxed test runner, report (36 tests) |
+| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Plan, guard, sandboxed test runner, report, usage (41 tests) |
 
 **A run, step by step:**
 1. **Plan:** each changed source file is mapped to its test file.
@@ -127,6 +128,32 @@ Problems found and fixed during the first real runs: the sandbox user couldn't r
   - flag removed assertions
   - re-run new tests 3 times to catch flakiness
 - **Reliability:** one automatic retry when the model is unavailable, and a GitHub App token so the agent's commit retriggers CI.
-- **Explicit approval:** optionally open a separate "tests for #N" PR instead of committing to the author's branch.
 - **Reuse:** a per-repo config file listing code areas, test locations and commands, so other repositories can use the agent without code changes.
 - **Quality over time:** an evaluation set of recorded PRs with expected decisions, re-run on every skill change, plus mutation testing on changed files.
+
+**Spending fewer tokens.** Usage is already reported on every run, so each of these can be measured. In order of expected saving:
+1. **Don't run when there's nothing to do:**
+   - diff only the commits pushed since the last run, not the whole PR
+   - skip whitespace-only and comment-only changes, constants files and renames before the agent starts
+   - skip files whose changed lines are already covered by tests, using the baseline coverage the workflow already measures
+   - optionally, trigger on "ready for review" or a `/test-agent` comment instead of every push
+2. **Give the agent less to read.** The workflow pre-collects a context pack per file: the changed functions with surrounding code, the existing test, fixtures and types. That replaces exploratory searches and reads, which each cost a turn.
+3. **Make each run smaller:**
+   - run the test-engineer directly instead of through a coordinating agent, which saves one context
+   - lower the limits to about 30 turns and 2 fix attempts per file
+   - use a small model to decide which files need tests, and a larger one only to write them
+   - keep the agent definition and skills stable, so prompt caching applies
+
+**Whole-codebase mode, as an alternative to PR mode.** A manually started or weekly workflow:
+1. picks the N least-covered files from the coverage report
+2. runs the same agent and skills on them under a fixed turn limit
+3. opens one PR with the new tests for approval
+
+The cost per run is fixed, and coverage rises a little each run.
+
+**A second agent for testability refactoring.** It would extract logic from route handlers and components into small, reusable, tested functions. It changes application code, so it needs stricter rules than the test agent:
+- existing tests must stay green without being edited
+- only files the PR changed, with a size limit
+- new tests for each extracted function
+- delivery as a separate PR into the feature branch, for explicit approval
+- run on demand, via a label, starting in comment-only mode

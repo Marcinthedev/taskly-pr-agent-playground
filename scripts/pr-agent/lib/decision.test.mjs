@@ -1,7 +1,50 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { extractDecision, finalAgentText } from "./decision.mjs";
+import { agentUsage, extractDecision, finalAgentText } from "./decision.mjs";
+
+test("agentUsage reads cost, turns, duration and tokens from the run log", () => {
+  const log = [
+    { type: "assistant", message: { content: [] } },
+    {
+      type: "result",
+      subtype: "success",
+      total_cost_usd: 0.4213,
+      num_turns: 23,
+      duration_ms: 312000,
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 18000,
+        cache_creation_input_tokens: 40000,
+        cache_read_input_tokens: 610000,
+      },
+    },
+  ];
+
+  assert.deepEqual(agentUsage(log), {
+    costUsd: 0.4213,
+    turns: 23,
+    durationMs: 312000,
+    inputTokens: 1200,
+    outputTokens: 18000,
+    cacheWriteTokens: 40000,
+    cacheReadTokens: 610000,
+  });
+});
+
+test("agentUsage tolerates missing fields and missing logs", () => {
+  assert.deepEqual(agentUsage([{ type: "result", num_turns: 3 }]), {
+    costUsd: null,
+    turns: 3,
+    durationMs: null,
+    inputTokens: null,
+    outputTokens: null,
+    cacheWriteTokens: null,
+    cacheReadTokens: null,
+  });
+  assert.equal(agentUsage(null), null);
+  assert.equal(agentUsage([{ type: "assistant" }]), null);
+});
 
 const valid = {
   decision: "tests_added",

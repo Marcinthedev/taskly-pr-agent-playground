@@ -8,7 +8,8 @@
 // Workflow-facing (results go to --dir, outside the agent's reach in CI):
 //   plan        --dir d --base <sha> --head <sha>      classify the PR diff, write plan.json + pr.diff
 //   verify      <area> --dir d [--baseline]           typecheck + full suite with coverage
-//   decision    --dir d --execution-file f            extract the agent's JSON report
+//   decision    --dir d --execution-file f            extract the agent's JSON report and usage
+//   usage       --dir d                               print the agent's usage on one line
 //   guard       --dir d                               check the agent's working-tree edits
 //   patch       --dir d [--out f]                     write the guarded files as a patch (default d/tests.patch)
 //   check-patch --dir d --patch f                     re-check a patch before it is committed
@@ -19,12 +20,12 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { extractDecision, finalAgentText } from "./lib/decision.mjs";
+import { agentUsage, extractDecision, finalAgentText } from "./lib/decision.mjs";
 import { parseNameStatus, parsePorcelain, patchChanges } from "./lib/git.mjs";
 import { checkAgentChanges } from "./lib/guard.mjs";
 import { AREAS } from "./lib/paths.mjs";
 import { planChanges } from "./lib/plan.mjs";
-import { renderReport, summarizeCoverage, summarizeVitest } from "./lib/report.mjs";
+import { formatUsage, renderReport, summarizeCoverage, summarizeVitest } from "./lib/report.mjs";
 import { buildCommand, runCommand } from "./lib/sandbox.mjs";
 
 const repoRoot = process.cwd();
@@ -173,8 +174,16 @@ function commandDecision({ flags }) {
   const log = readJson(requireFlag(flags, "execution-file"));
   const decision = extractDecision(finalAgentText(log));
   if (decision) writeJson(path.join(dir, "decision.json"), decision);
+  const usage = agentUsage(log);
+  if (usage) writeJson(path.join(dir, "usage.json"), usage);
   setOutputs({ found: Boolean(decision), decision: decision?.decision ?? "missing" });
   console.log(decision ? JSON.stringify(decision, null, 2) : "The agent did not return a valid decision report.");
+  console.log(`Agent usage: ${formatUsage(usage)}`);
+}
+
+function commandUsage({ flags }) {
+  allowFlags(flags, ["dir"]);
+  console.log(formatUsage(readJson(path.join(requireFlag(flags, "dir"), "usage.json"))));
 }
 
 function commandGuard({ flags }) {
@@ -230,6 +239,7 @@ function commandReport({ flags }) {
     decision: readJson(path.join(dir, "decision.json")),
     guard: readJson(path.join(dir, "guard.json")),
     verification: plan.needsTests ? verification : {},
+    usage: readJson(path.join(dir, "usage.json")),
     outcome: { status: flags.status ?? "failed", reason: flags.reason, sha: flags.sha },
     runUrl: flags["run-url"] ?? "",
   });
@@ -247,6 +257,7 @@ const COMMANDS = {
   patch: commandPatch,
   "check-patch": commandCheckPatch,
   report: commandReport,
+  usage: commandUsage,
 };
 
 export function main(argv = process.argv.slice(2)) {

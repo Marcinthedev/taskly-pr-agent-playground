@@ -34,23 +34,31 @@ env:
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
-  fork-notice:
-    name: Skip fork pull request
-    if: github.event.pull_request.head.repo.full_name != github.repository
+  # Who may spend the model token: users listed in the PR_AGENT_ALLOWED_USERS
+  # repository variable (comma-separated, no spaces), or only the repository
+  # owner when it is unset. Fork PRs never run: they get no secrets.
+  skip-notice:
+    name: Skip (fork or not allowed)
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      !((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
+        (vars.PR_AGENT_ALLOWED_USERS != '' && contains(format(',{0},', vars.PR_AGENT_ALLOWED_USERS), format(',{0},', github.actor))))
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - run: |
-          echo "::notice::PR Test Agent runs only for branches of this repository; fork PRs receive no secrets."
-          echo "PR Test Agent skipped: fork pull requests receive no secrets on \`pull_request\`." >> "$GITHUB_STEP_SUMMARY"
+      - env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "::notice::PR Test Agent skipped: it runs only for same-repository branches and for users in PR_AGENT_ALLOWED_USERS (default: the repository owner). Triggered by: $ACTOR"
+          echo "PR Test Agent skipped for \`$ACTOR\`: fork PRs and users outside PR_AGENT_ALLOWED_USERS do not run the agent." >> "$GITHUB_STEP_SUMMARY"
 
   generate:
     name: Plan, write and verify tests
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'github-actions[bot]' &&
-      github.actor != 'dependabot[bot]'
+      ((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
+       (vars.PR_AGENT_ALLOWED_USERS != '' && contains(format(',{0},', vars.PR_AGENT_ALLOWED_USERS), format(',{0},', github.actor))))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

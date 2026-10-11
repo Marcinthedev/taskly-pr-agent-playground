@@ -27,9 +27,12 @@ The same agent and skills were also used to add missing tests to the existing ap
 **Prerequisites**
 1. This code on the repository's default branch.
 2. A repository secret: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, Claude Pro or Max) or `ANTHROPIC_API_KEY`.
-3. Optional variables: `PR_AGENT_MODEL` (default `claude-sonnet-5-5`), and `PR_AGENT_AUTO_COMMIT=false` for a patch artifact instead of a commit.
+3. Optional variables:
+   - `PR_AGENT_ALLOWED_USERS`: GitHub logins allowed to trigger the agent, comma-separated with no spaces. Unset means only the repository owner.
+   - `PR_AGENT_MODEL`: defaults to `claude-sonnet-5-5`.
+   - `PR_AGENT_AUTO_COMMIT=false`: a patch artifact instead of a commit.
 
-**Trigger:** open or update a non-draft PR, from a branch in the same repository, that changes app source.
+**Trigger:** an allowed user opens or updates a non-draft PR, from a branch in the same repository, that changes app source.
 
 **Results in the PR:**
 - one comment, updated in place, also copied to the job summary
@@ -103,6 +106,7 @@ Problems found and fixed during the first real runs: the sandbox user couldn't r
 | A malicious test trying to steal the model key | Tests run as another OS user, with an empty environment and no network, so they can't reach the key |
 | Test code tampering with results or approved files | The results folder is private to the main runner user. The patch is cut before verification and compared after |
 | A PR weakening its own checks | Agent config and tooling are loaded from the base branch |
+| Someone else spending the model token | Only users in `PR_AGENT_ALLOWED_USERS` (default: the owner) trigger the agent. Others, bots included, get a skip notice |
 | Fork PRs, or write access next to PR code | `pull_request` only. Fork PRs are skipped. The write token never runs PR code |
 | Supply chain | Actions pinned to commit SHAs. Dependencies installed from the lockfile, inside the sandbox |
 | Loops and cost | Bot commits don't trigger runs. Each run is capped at 80 turns and 25 minutes |

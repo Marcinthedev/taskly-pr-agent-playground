@@ -131,14 +131,16 @@ function commandVerify({ positional, flags }) {
   if (!AREAS.includes(area)) throw new Error(`Unknown area: ${area}`);
   fs.mkdirSync(dir, { recursive: true });
 
-  const coverageSummary = path.join(repoRoot, area, "coverage", "coverage-summary.json");
   const phase = flags.baseline ? "before" : "after";
   const testsJson = path.join(dir, flags.baseline ? `${area}-tests-before.json` : `${area}-tests.json`);
-  // The sandboxed run writes into its own scratch folder; only this process
-  // writes into --dir, so tests cannot touch plan.json, guard.json or decision.json.
+  // The sandboxed run writes test results and coverage into a fresh scratch
+  // folder: only this process writes into --dir (so tests cannot touch
+  // plan.json, guard.json or decision.json), and no run has to delete files
+  // that another OS user created in a shared coverage/ folder.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pr-agent-out-"));
   fs.chmodSync(scratch, 0o777);
   const scratchJson = path.join(scratch, "tests.json");
+  const coverageSummary = path.join(scratch, "coverage", "coverage-summary.json");
 
   let typecheckOk = true;
   if (!flags.baseline) {
@@ -146,11 +148,17 @@ function commandVerify({ positional, flags }) {
     fs.writeFileSync(path.join(dir, `${area}-typecheck.txt`), typecheckOk ? "success" : "failure");
   }
 
-  fs.rmSync(coverageSummary, { force: true });
-  runCommand(buildCommand("test", area, [], { json: scratchJson, coverage: true }), { repoRoot });
+  runCommand(
+    buildCommand("test", area, [], { json: scratchJson, coverage: true, coverageDir: path.join(scratch, "coverage") }),
+    { repoRoot },
+  );
   if (fs.existsSync(scratchJson)) fs.copyFileSync(scratchJson, testsJson);
   if (fs.existsSync(coverageSummary)) fs.copyFileSync(coverageSummary, path.join(dir, `${area}-coverage-${phase}.json`));
-  fs.rmSync(scratch, { recursive: true, force: true });
+  try {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  } catch {
+    // Folders the sandbox user created inside may not be removable by us; the runner is discarded anyway.
+  }
 
   // Pass/fail comes from the test results, not the exit code: coverage
   // thresholds can fail a run whose tests all passed.

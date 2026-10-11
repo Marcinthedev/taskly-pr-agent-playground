@@ -25,9 +25,9 @@ export function scrubbedEnv(source = process.env) {
  * @param {"test" | "typecheck"} action
  * @param {"backend" | "frontend"} area
  * @param {string[]} files  repository-relative test files; empty runs the whole suite
- * @param {{ json?: string, coverage?: boolean }} options
+ * @param {{ json?: string, coverage?: boolean, coverageDir?: string }} options
  */
-export function buildCommand(action, area, files = [], { json, coverage = false } = {}) {
+export function buildCommand(action, area, files = [], { json, coverage = false, coverageDir } = {}) {
   if (!TEST_FILE[area]) throw new Error(`Unknown area: ${area}`);
   if (action === "typecheck") return { cwd: area, args: ["tsc", "--noEmit"] };
   if (action !== "test") throw new Error(`Unknown action: ${action}`);
@@ -47,6 +47,7 @@ export function buildCommand(action, area, files = [], { json, coverage = false 
       "--coverage", "--coverage.reporter=json-summary", "--coverage.reporter=text-summary",
       "--coverage.reportOnFailure",
     );
+    if (coverageDir) args.push(`--coverage.reportsDirectory=${coverageDir}`);
   }
   return { cwd: area, args };
 }

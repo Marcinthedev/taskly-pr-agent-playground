@@ -57,6 +57,16 @@ test("buildCommand supports frontend files, typecheck and coverage runs", () => 
   });
 });
 
+test("buildCommand writes coverage into a caller-chosen folder", () => {
+  // Each run gets a fresh folder, so no run has to delete files that another
+  // OS user (the sandbox) created in a shared coverage/ folder.
+  assert.deepEqual(buildCommand("test", "backend", [], { coverage: true, coverageDir: "/tmp/run-1/coverage" }).args, [
+    "vitest", "run",
+    "--coverage", "--coverage.reporter=json-summary", "--coverage.reporter=text-summary",
+    "--coverage.reportOnFailure", "--coverage.reportsDirectory=/tmp/run-1/coverage",
+  ]);
+});
+
 test("spawnSpec runs the package binary directly with node when no sandbox user is configured", () => {
   const spec = spawnSpec(buildCommand("test", "backend"), {
     repoRoot: "/repo",

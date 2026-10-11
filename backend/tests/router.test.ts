@@ -5,7 +5,7 @@ import { createTodosRouter } from '../src/features/todos/router.ts';
 import { todo } from './fixture.ts';
 
 function setup() {
-  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), get: vi.fn(), update: vi.fn(), delete: vi.fn() };
+  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), get: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteCompleted: vi.fn() };
   const app = express();
   app.use(express.json());
   app.use('/api/todos', createTodosRouter(repository));
@@ -82,6 +82,31 @@ describe('PATCH /api/todos/:id', () => {
     const response = await request(app).patch('/api/todos/1').send(payload);
     expect(response.status).toBe(422);
     expect(repository.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/todos/completed', () => {
+  it.each([0, 1, 3])('responds 200 with the deleted count %i', async (deleted) => {
+    const { app, repository } = setup();
+    repository.deleteCompleted.mockResolvedValue(deleted);
+    const response = await request(app).delete('/api/todos/completed');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ deleted });
+    expect(repository.deleteCompleted).toHaveBeenCalledOnce();
+  });
+
+  it('is not treated as a task id', async () => {
+    const { app, repository } = setup();
+    repository.deleteCompleted.mockResolvedValue(0);
+    await request(app).delete('/api/todos/completed');
+    expect(repository.delete).not.toHaveBeenCalled();
+  });
+
+  it('responds 500 when the repository fails', async () => {
+    const { app, repository } = setup();
+    repository.deleteCompleted.mockRejectedValue(new Error('Database unavailable'));
+    const response = await request(app).delete('/api/todos/completed');
+    expect(response.status).toBe(500);
   });
 });
 

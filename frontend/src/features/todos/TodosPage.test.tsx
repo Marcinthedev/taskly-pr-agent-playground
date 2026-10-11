@@ -6,6 +6,7 @@ import { todoFixture } from '../../test/todoFixture'
 import { useTodoFilters } from './hooks/useTodoFilters'
 import { useTodosBusy } from './hooks/useTodosBusy'
 import { useTodosQuery } from './hooks/useTodosQuery'
+import { useClearCompletedMutation } from './hooks/useClearCompletedMutation'
 import { useUpdateTodoMutation } from './hooks/useUpdateTodoMutation'
 import { TodosPage } from './TodosPage'
 import type { Todo } from './types'
@@ -15,12 +16,26 @@ vi.mock('../../hooks/useNotice', () => ({ useNotice: vi.fn() }))
 vi.mock('./hooks/useTodoFilters', () => ({ useTodoFilters: vi.fn() }))
 vi.mock('./hooks/useTodosBusy', () => ({ useTodosBusy: vi.fn() }))
 vi.mock('./hooks/useTodosQuery', () => ({ useTodosQuery: vi.fn() }))
+vi.mock('./hooks/useClearCompletedMutation', () => ({
+  useClearCompletedMutation: vi.fn(),
+}))
 vi.mock('./hooks/useUpdateTodoMutation', () => ({
   useUpdateTodoMutation: vi.fn(),
 }))
 vi.mock('./components/TodosHeader', () => ({
-  TodosHeader: ({ onCreate }: { onCreate: () => void }) => (
-    <button onClick={onCreate}>New task</button>
+  TodosHeader: ({
+    onCreate,
+    onClearCompleted,
+    completedCount,
+  }: {
+    onCreate: () => void
+    onClearCompleted: () => void
+    completedCount: number
+  }) => (
+    <>
+      <button onClick={onCreate}>New task</button>
+      <button onClick={onClearCompleted}>clear {completedCount}</button>
+    </>
   ),
 }))
 vi.mock('./components/TodoFilters', () => ({ TodoFilters: () => null }))
@@ -64,15 +79,23 @@ vi.mock('../../components/SuccessNotice', () => ({
 
 const notify = vi.fn()
 const mutateAsync = vi.fn()
+const clearAsync = vi.fn()
 
 function setup({
   todos = [todoFixture],
   busy = false,
   queryError = null as Error | null,
   mutationError = null as Error | null,
+  clearError = null as Error | null,
 } = {}) {
   const refetch = vi.fn().mockResolvedValue(undefined)
   const reset = vi.fn()
+  const clearReset = vi.fn()
+  vi.mocked(useClearCompletedMutation).mockReturnValue({
+    error: clearError,
+    reset: clearReset,
+    mutateAsync: clearAsync,
+  } as unknown as ReturnType<typeof useClearCompletedMutation>)
   vi.mocked(useTodosQuery).mockReturnValue({
     data: todos,
     isPending: false,
@@ -98,12 +121,70 @@ function setup({
     setSort: vi.fn(),
   })
   render(<TodosPage />)
-  return { refetch, reset, user: userEvent.setup() }
+  return { refetch, reset, clearReset, user: userEvent.setup() }
 }
 
 beforeEach(() => {
   notify.mockReset()
   mutateAsync.mockReset()
+  clearAsync.mockReset()
+})
+
+const done = { ...todoFixture, id: 2, title: 'Done task', completed: true }
+
+it.each([
+  [1, 'Cleared 1 completed task.'],
+  [3, 'Cleared 3 completed tasks.'],
+  [0, 'Cleared 0 completed tasks.'],
+])('announces clearing %i completed tasks', async (deleted, message) => {
+  clearAsync.mockResolvedValue({ deleted })
+  const { user } = setup({ todos: [todoFixture, done] })
+
+  await user.click(screen.getByRole('button', { name: 'clear 1' }))
+
+  expect(clearAsync).toHaveBeenCalledTimes(1)
+  expect(notify).toHaveBeenCalledWith(message)
+})
+
+it('does not clear when no task is completed', async () => {
+  const { user } = setup({ todos: [todoFixture] })
+
+  await user.click(screen.getByRole('button', { name: 'clear 0' }))
+
+  expect(clearAsync).not.toHaveBeenCalled()
+})
+
+it('does not clear while another mutation is running', async () => {
+  const { user } = setup({ todos: [done], busy: true })
+
+  await user.click(screen.getByRole('button', { name: 'clear 1' }))
+
+  expect(clearAsync).not.toHaveBeenCalled()
+})
+
+it('stays quiet when clearing fails', async () => {
+  clearAsync.mockRejectedValue(new Error('Server down.'))
+  const { user } = setup({ todos: [done] })
+
+  await user.click(screen.getByRole('button', { name: 'clear 1' }))
+
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('shows a failed clear in the page alert', () => {
+  setup({ todos: [done], clearError: new Error('Could not clear tasks.') })
+  expect(screen.getByTestId('alert')).toHaveTextContent('Could not clear tasks.')
+})
+
+it('resets the clear error when retrying', async () => {
+  const { user, clearReset } = setup({
+    todos: [done],
+    clearError: new Error('Could not clear tasks.'),
+  })
+
+  await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+  expect(clearReset).toHaveBeenCalledTimes(1)
 })
 
 it('displays a query failure and resets mutation errors before retrying', async () => {

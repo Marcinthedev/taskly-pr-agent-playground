@@ -23,3 +23,29 @@ it('invokes creation when enabled and blocks it when disabled', async () => {
   await user.click(button)
   expect(onCreate).toHaveBeenCalledTimes(1)
 })
+
+it('hides the clear button when no handler is provided', () => {
+  render(<TodosHeader disabled={false} onCreate={vi.fn()} />)
+  expect(screen.queryByRole('button', { name: /Clear completed/ })).not.toBeInTheDocument()
+})
+
+it('shows the completed count and clears when enabled', async () => {
+  const user = userEvent.setup()
+  const onClear = vi.fn()
+  render(
+    <TodosHeader disabled={false} onCreate={vi.fn()} completedCount={2} onClearCompleted={onClear} />,
+  )
+  await user.click(screen.getByRole('button', { name: 'Clear completed (2)' }))
+  expect(onClear).toHaveBeenCalledTimes(1)
+})
+
+it('disables clearing with no completed tasks or while disabled', () => {
+  const { rerender } = render(
+    <TodosHeader disabled={false} onCreate={vi.fn()} onClearCompleted={vi.fn()} />,
+  )
+  expect(screen.getByRole('button', { name: 'Clear completed (0)' })).toBeDisabled()
+  rerender(
+    <TodosHeader disabled onCreate={vi.fn()} completedCount={2} onClearCompleted={vi.fn()} />,
+  )
+  expect(screen.getByRole('button', { name: 'Clear completed (2)' })).toBeDisabled()
+})

@@ -1,50 +1,38 @@
-# PR Test Agent: extensions beyond the task
+# Beyond the task
 
-[SOLUTION.md](SOLUTION.md) covers what the task asks for. This file describes two additions that go beyond it. They're built on the same workflow, sandbox and checks.
+[SOLUTION.md](SOLUTION.md) covers what the task asked for. This file describes two extras I built on top of it. Both reuse the same workflow, sandbox and checks.
 
 ## Testability agent
 
-**What it does.** The **testability-refactorer** extracts hard-to-test logic from the files a PR changed, such as logic inside route handlers and React components or calculations mixed with IO, into small, pure, exported functions. It then unit-tests them. The result is easier to test and to reuse, with no change in behaviour.
+The test agent writes tests for code as it is. Sometimes the code itself is the problem: logic buried in a route handler or a React component, or a calculation that reads the clock or the environment. That kind of code is awkward to test and impossible to reuse.
 
-**Trigger.** On demand: add the `testability` label to a PR. The label is removed after the run, so adding it again starts a new run. It runs only for users in `PR_AGENT_ALLOWED_USERS`, like the test agent.
+The testability-refactorer goes after exactly that. It looks at the files a PR changed, pulls hard-to-test logic out into small, pure, exported functions, and writes unit tests for them. Behaviour stays the same; only the structure changes.
 
-**Definition**
+**Starting it.** Add the `testability` label to a PR. When the run finishes, the workflow removes the label again, so adding it a second time starts a new run. Only users in `PR_AGENT_ALLOWED_USERS` can trigger it, the same as the test agent.
 
-| Piece | Location | Role |
-| --- | --- | --- |
-| `testability-refactorer` agent | [.claude/agents/testability-refactorer.md](.claude/agents/testability-refactorer.md) | Review → extract → test → verify → report |
-| `testability-review` skill | [.claude/skills/testability-review/](.claude/skills/testability-review/SKILL.md) | Finds logic that is hard to test or reuse, and ranks candidates |
-| `safe-refactor` skill | [.claude/skills/safe-refactor/](.claude/skills/safe-refactor/SKILL.md) | Extracts pure functions without changing behaviour |
-| Reused skills | `unit-test-quality`, `backend-unit-tests`, `frontend-unit-tests`, `test-verification` | Its tests follow the same nine rules as the test agent's |
-| Permissions | [.github/pr-agent/claude-settings-refactor.json](.github/pr-agent/claude-settings-refactor.json) | Like the test agent's, but application source is editable |
+**Where it's defined**
 
-**Guard policy.** This agent changes application code, so its rules are stricter than the test agent's:
-- it may modify only the source files the PR already changed
-- it may add new modules, but only in the same folder as a changed source file
-- it may add new test files
-- it may never edit an existing test
+| What | Where |
+| --- | --- |
+| The agent | [.claude/agents/testability-refactorer.md](.claude/agents/testability-refactorer.md) |
+| Finding candidates | [.claude/skills/testability-review/](.claude/skills/testability-review/SKILL.md) |
+| Extracting without changing behaviour | [.claude/skills/safe-refactor/](.claude/skills/safe-refactor/SKILL.md) |
+| Its permissions | [.github/pr-agent/claude-settings-refactor.json](.github/pr-agent/claude-settings-refactor.json) |
 
-Existing tests must stay green without edits, which is the evidence that behaviour didn't change.
+It also reuses `unit-test-quality`, the two test-convention skills and `test-verification`, so its tests follow the same rules as the test agent's.
 
-**Delivery.** The verified refactor is opened as a separate PR, "Refactor for testability: #N", into the feature branch, with its own comment on the original PR. You approve it by merging it, or reject it by closing it.
+**Its rules.** This agent changes application code, so its rules are stricter than the test agent's. It may change only the source files the PR already changed. It may add new modules, but only next to those files, plus new test files. It may never edit an existing test. That last rule is the important one: if the old tests still pass without being touched, the behaviour hasn't changed.
 
-**Prerequisites**
-- a `testability` label in the repository
-- Settings → Actions → General → **Allow GitHub Actions to create and approve pull requests**, so the workflow can open the refactor PR
+**What you get.** The verified refactor isn't pushed to your branch. It's opened as a separate PR into your feature branch, called "Refactor for testability: #N", and the original PR gets a comment linking to it. Merge it if you like it, close it if you don't.
 
-**Remaining risk.** Behaviour that no existing test covers can still change unnoticed. The new tests and your review of the refactor PR are the safeguards there.
+**Setup.** Create a `testability` label in the repository. Then enable *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*, so the workflow is allowed to open the refactor PR.
 
-## Local pre-push hook (husky)
+**What it can't guarantee.** If a piece of behaviour isn't covered by any existing test, the refactor could change it without anything failing. The new tests and your review of the refactor PR are the safety net there.
 
-**What it does.** Before `git push`, [.husky/pre-push](.husky/pre-push) checks only what you're about to push, compared with the remote branch, or with `origin/main` for a branch that was never pushed:
-- **Backend:** typecheck, plus the tests related to the changed files.
-- **Frontend:** typecheck, Prettier on the changed files, plus the related tests.
+## Pre-push hook
 
-It stops early with a clear message if the shell's Node.js is older than 22.
+[.husky/pre-push](.husky/pre-push) runs before every `git push` and checks only what you're about to push. It compares against the remote branch, or against `origin/main` for a branch that has never been pushed. For backend changes, it runs the typecheck and the tests related to the changed files. For frontend changes, it does the same and also runs Prettier on the changed files. If your shell's Node.js is older than 22, it stops with a clear message instead of failing in a confusing way.
 
-**Setup.** Run `npm install` once at the repository root. The root `package.json` exists only for this hook.
+To enable it, run `npm install` once at the repository root. The root `package.json` exists only for this hook.
 
-**Caveats**
-- The hook runs only on machines where that install was done.
-- `git push --no-verify` skips it. The demo feature, which breaks tests on purpose, is pushed that way.
-- CI remains the authority; the hook only surfaces the same problems earlier.
+It only runs on machines where that install was done, and `git push --no-verify` skips it. The demo feature is pushed that way, because it breaks tests on purpose. CI is still the real check; the hook just shows you the same problems a few minutes earlier.

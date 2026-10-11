@@ -1,26 +1,22 @@
-# Security and production readiness
+# Security
 
-This repository keeps the app safe-by-default and prepared for GitHub-based deployment controls.
+## Reporting a problem
 
-## Required GitHub configuration
+If you find a security issue, please don't open a public issue. Use GitHub's private vulnerability reporting instead (*Security → Report a vulnerability*), or contact the repository owner directly.
 
-Set these as repository or environment secrets in GitHub:
+## Secrets
 
-- `APP_ENV`
-- `DATABASE_URL`
-- `JWT_SECRET`
+Never commit `.env` files; they're in `.gitignore` for that reason. The only secret this repository needs on GitHub is the model credential for the PR Test Agent: either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. Production credentials belong in the deployment platform's secret store, not in the repository.
 
-For production, add the values under the `production` environment in the GitHub repository settings and require approval before deployment.
+## What's in place
 
-## Local rule
+The API sends standard security headers (via helmet) and rate-limits the task endpoints per client. It only accepts cross-origin requests from origins listed in `CORS_ORIGINS`; by default, it accepts none.
 
-Never commit `.env` files. Keep all real secrets in GitHub Secrets or the target deployment platform's secret manager.
+How the PR Test Agent is kept away from secrets and write access is described in the security section of [SOLUTION.md](../SOLUTION.md).
 
-## Runtime controls to add before production launch
+## Before going to production
 
-- restrict CORS to trusted origins
-- disable Swagger/OpenAPI in production unless explicitly needed
-- add authentication and authorization on sensitive routes
-- add rate limiting and security headers
-- use a managed PostgreSQL instance instead of a local development database
-- place the app behind a trusted ingress or reverse proxy
+- Add authentication. Every API route is currently open.
+- Turn off the Swagger UI at `/docs`, or put it behind authentication.
+- Use a managed PostgreSQL instance with backups instead of the local Docker database.
+- Put the app behind a reverse proxy or ingress that terminates TLS.

@@ -1,27 +1,27 @@
-# Try the PR Test Agent in a playground repository
+# Trying the PR Test Agent in a playground repo
 
-About 30 minutes. You push this repo to a new, throwaway GitHub repository, open one feature PR without tests, and watch the agent write, verify and commit them. Your real `origin` stays untouched.
+This takes about half an hour. You push a copy of this project to a throwaway GitHub repository, open a PR that adds a feature without tests, and watch the agent write the tests, check them and commit them. Your real repository isn't touched.
 
 ## 1. Create the playground repository
 
-On GitHub, create an empty repository, for example `taskly-pr-agent-playground`. Do not add a README or a licence. Private is fine. Actions are enabled by default, and private repos use your free Actions minutes.
+Create a new, empty repository on GitHub, for example `taskly-pr-agent-playground`. Leave the README, .gitignore and licence options unticked, otherwise your first push gets rejected. A private repository works fine; it just uses your free Actions minutes.
 
-## 2. Give the agent a credential
+## 2. Add a credential for the agent
 
-Open the playground repo, go to **Settings → Secrets and variables → Actions → New repository secret**, and add **one** of these secrets:
+In the playground repo, go to *Settings → Secrets and variables → Actions*, and add one of these secrets:
 
-| Secret | Where it comes from | Billing |
+| Secret | How to get it | Paid by |
 | --- | --- | --- |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude setup-token` in the Claude Code CLI and paste the token | Your Claude Pro/Max subscription |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude setup-token` in the Claude Code CLI and copy the token it prints | Your Claude Pro or Max subscription |
 | `ANTHROPIC_API_KEY` | console.anthropic.com → API keys | Pay per token |
 
-**Shortcut:** in the Claude Code CLI, `/install-github-app` walks you through the same thing and stores the secret for you. The workflow needs only the secret. It talks to GitHub with the built-in `GITHUB_TOKEN`, not the Claude app.
+If you'd rather not do it by hand, `/install-github-app` in the Claude Code CLI sets up the secret for you. The workflow only needs the secret; it talks to GitHub with the built-in `GITHUB_TOKEN`.
 
-**Optional:** under **Variables**, set `PR_AGENT_MODEL` to choose a model, or set `PR_AGENT_AUTO_COMMIT=false` to get a patch artifact instead of a commit.
+You can also set two optional variables under *Variables*: `PR_AGENT_MODEL` to choose the model, and `PR_AGENT_AUTO_COMMIT=false` to get the tests as a patch file instead of a commit.
 
-## 3. Push `main` to the playground
+## 3. Push the code
 
-Run these from the app repository root, `taskly-app-node/taskly-app-node`:
+From the app's root folder (`taskly-app-node/taskly-app-node`):
 
 ```sh
 git remote add playground git@github.com:<you>/taskly-pr-agent-playground.git
@@ -30,72 +30,54 @@ git push playground main
 
 ## 4. Open the demo PR
 
-[`clear-completed-tasks.patch`](clear-completed-tasks.patch) adds a "Clear completed tasks" feature with no tests:
-- **Backend:** a `DELETE /api/todos/completed` route and a repository method.
-- **Frontend:** an API call, a mutation hook, and a header button.
+[`clear-completed-tasks.patch`](clear-completed-tasks.patch) adds a "Clear completed tasks" feature with no tests. On the backend, that's a `DELETE /api/todos/completed` route and a repository method. On the frontend, it's an API call, a mutation hook and a button in the header.
 
 ```sh
 git checkout -b demo/clear-completed
 git apply docs/pr-agent-demo/clear-completed-tasks.patch
 git add -A
 git commit -m "feat: clear completed tasks"
-# --no-verify: the pre-push hook would stop this feature, which breaks two tests on purpose
+# --no-verify skips the pre-push hook, which would stop this push: the feature breaks two tests on purpose
 git push --no-verify playground demo/clear-completed
 ```
 
-On GitHub, open a pull request **in the playground repo**: `demo/clear-completed` → `main`.
+Then open a pull request in the playground repo, from `demo/clear-completed` into `main`.
 
-The patch deliberately breaks two existing tests. The backend router test's fake repository lacks the new method, so the backend typecheck fails. The page tests don't mock the new hook, so they fail. The agent must fix both and add tests for the new code.
+The patch breaks two existing tests on purpose. The router test's fake repository doesn't have the new method, so the backend typecheck fails. The page tests don't mock the new hook, so they crash. The agent has to fix both, as well as write tests for the new code.
 
-## 5. Watch it work (about 10–20 minutes)
+## 5. Watch it work
 
-1. **Actions → PR Test Agent**:
-   - The *Plan, write and verify tests* job runs the planner, the sandboxed install, the agent, the guard and the verification.
-   - *Commit verified tests and report* follows.
-2. **The PR** gets one comment with these sections:
-   - the outcome
-   - the agent's decision and the skills it used
-   - the test files it wrote
-   - a typecheck, tests and coverage table, before and after
-   - the change plan
-3. **The branch** gets a commit `test: add unit tests for changed code [pr-test-agent]` from `github-actions[bot]`. Pull it with `git pull playground demo/clear-completed`.
-4. **Everything raw** is in the run's `pr-agent-results` artifact:
-   - `status.json`: why the run ended as it did
-   - `guard.json`: which files were allowed or rejected
-   - `decision.json`: the agent's report
-   - the Vitest JSON and coverage summaries
-   - `tests.patch`
+It usually takes 10 to 20 minutes.
 
-Commits pushed with `GITHUB_TOKEN` do not start new workflow runs, so CI still shows the red result from before the agent's commit. To re-run CI, push any commit, even an empty one:
+In the *Actions* tab, open the *PR Test Agent* run. The first job, *Plan, write and verify tests*, does the real work: it plans, installs dependencies in the sandbox, runs the agent, checks its changes and verifies them. The second job, *Commit verified tests and report*, publishes the result.
 
-```sh
-git commit --allow-empty -m "ci: re-run checks"
-git push playground demo/clear-completed
-```
+When it's done:
+- **A comment on the PR** shows the outcome, the agent's decision and the skills it used, and the test files it wrote. It also has a table with typecheck, formatting, test results and coverage, plus the tokens and time the agent used.
+- **A new commit on the branch**, `test: add unit tests for changed code [pr-test-agent]`, from `github-actions[bot]`. Get it locally with `git pull playground demo/clear-completed`.
+- **CI turns green on that commit.** The agent's own check on it shows as skipped. That's intentional, because the agent never runs on bot commits.
+- **The run's `pr-agent-results` artifact** holds the raw files: why the run ended the way it did (`status.json`), which files were allowed (`guard.json`), the agent's report (`decision.json`), the test results, the coverage and the patch.
 
-That also re-runs the agent. It should now find the tests in place and report that no changes are needed.
+## 6. Things to try next
 
-## 6. Things worth trying
-
-| Try | Expected |
+| Try this | What should happen |
 | --- | --- |
-| A PR that changes only `README.md` | The agent workflow does not start, because of its path filter |
-| Mark the PR as draft, then push | The agent is skipped until the PR is ready for review |
-| A PR that edits `.claude/skills/**` and source | The run uses the `main` version of the skills, and the log shows a notice |
-| Set `PR_AGENT_AUTO_COMMIT=false` and push | No commit. The comment points to the patch artifact |
-| Push a second commit while the agent runs | The older run is cancelled. If a run finishes after the branch moved, it refuses to commit |
+| A PR that only changes `README.md` | The agent doesn't start at all |
+| Mark the PR as a draft and push again | The agent waits until the PR is ready for review |
+| A PR that changes `.claude/skills/` as well as source | The run still uses the skills from `main`, and the log says so |
+| Set `PR_AGENT_AUTO_COMMIT=false` and push | No commit. The comment points to the patch file instead |
+| Push again while the agent is still running | The older run is cancelled. A run that finishes after the branch moved won't commit |
 
-## 7. If something goes wrong
+## 7. When something goes wrong
 
-| Symptom | Look at |
+| What you see | Where to look |
 | --- | --- |
-| Comment says "the agent run did not complete" | The *Run the test-engineer agent* step log. Usually the secret is missing or invalid, or the turn or time limit was hit |
-| "outside the test-only policy" | `guard.json` in the artifact lists the files that were rejected |
-| "failed typecheck or the test suite" | `*-tests.json` and the *Verify* step log |
-| Verified, but no commit | A branch ruleset blocks `github-actions[bot]`, or the branch moved during the run |
-| *Cut the sandbox user off the network* fails | The runner image changed its iptables setup. Report it; the step fails closed |
+| "the agent run did not complete" | The log of the *Run the agent* step. Usually the secret is missing or invalid, or the agent ran out of turns or time |
+| "changed files outside its policy" | `guard.json` in the artifact lists the files that weren't allowed |
+| "failed typecheck, formatting or the test suite" | The test results in the artifact, and the log of the *Verify* step |
+| The tests were verified but not committed | Something blocks `github-actions[bot]` from pushing, or the branch moved during the run |
+| The *Cut the sandbox user off the network* step fails | The runner image probably changed its firewall setup. The step fails safely, so nothing runs without the sandbox |
 
-## 8. Clean up
+## 8. Cleaning up
 
 ```sh
 git checkout main
@@ -103,4 +85,4 @@ git branch -D demo/clear-completed
 git remote remove playground
 ```
 
-Then delete the playground repository on GitHub (**Settings → Danger zone**) and revoke the token or API key if you created one only for this.
+Then delete the playground repository on GitHub (*Settings → Danger zone*), and revoke the token or API key if you created it only for this.

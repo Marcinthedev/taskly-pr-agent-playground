@@ -1,178 +1,178 @@
 # PR Test Agent
 
-For every pull request that changes `backend/src/**` or `frontend/src/**`, a Claude Code agent, the **test-engineer**, writes or updates unit tests for the changed code. The workflow then verifies the tests, commits them to the PR branch and reports the result in one PR comment.
+When a pull request touches `backend/src` or `frontend/src`, a Claude Code agent called the test-engineer writes or updates unit tests for the changed code. A GitHub Actions workflow then checks those tests, runs them, commits them to the PR branch and leaves a comment with the results.
 
-The same agent and skills were also used to add missing tests to the existing app:
+I also used the same agent and skills to fill the gaps in the existing test suite:
 
 | Area | Tests | Line coverage |
 | --- | --- | --- |
 | Backend | 58 → 107 | 55.6% → 93.7% |
 | Frontend | 23 → 83 | 55.3% → 97.5% |
 
-Extensions beyond the task, a testability-refactoring agent and a local pre-push hook, are described in [SOLUTION_EXTENDED.md](SOLUTION_EXTENDED.md).
+Two things I built beyond the task, a refactoring agent and a pre-push hook, are described separately in [SOLUTION_EXTENDED.md](SOLUTION_EXTENDED.md).
 
-## 1. Technical decisions and rationale
+## 1. Technical decisions
 
-- **Claude Code as the agent environment, via `anthropics/claude-code-action`.** It is a real tool-using loop: the agent reads code, writes tests, runs them and fixes them. A single "return a diff" model call can't do that. Agents and skills are plain Markdown files that also work locally in Claude Code.
-- **The workflow decides, the agent proposes.** Planning, policy, verification and reporting are deterministic code with their own tests. Every pass/fail, format and coverage number in the PR comes from the workflow's own run, not from the agent's claims.
-- **Defence in depth on what the agent can do:**
-  - Tool allowlist: no web access, and Bash limited to the test runner, the formatter and read-only git.
-  - Reads of `/proc` and the runner's dotfiles are denied.
-  - A guard discards the run if anything other than test files changed.
-  - The patch is re-checked before it is committed.
-  - Agent configuration and tooling always come from the base branch, so a PR can't weaken its own checks.
-- **Sandboxed execution.** Dependency installs and all test runs execute as a separate OS user, with an empty environment and no network.
-- **Split trust.** The trigger is `pull_request`, not `pull_request_target`. The job that runs PR code has a read-only token. The job with write access never runs PR code.
-- **Commit to the PR branch.** The agent changes test files only, so the risk is low, and the author reviews the tests in the same PR before merging. A separate "tests for #N" PR would add a step without adding safety.
-- **Generated tests meet the repo's standards.** Strict typecheck, Prettier for frontend tests, and the nine-rule quality definition below. Unformatted or untyped output is rejected, not committed.
+**Claude Code as the agent.** I run it through the official `anthropics/claude-code-action`. The agent works in a loop: it reads the code, writes a test, runs it, reads the failure and fixes it. That matters, because a single model call that returns a diff has no way of knowing whether its tests pass. Agents and skills in Claude Code are just Markdown files, so the same setup also works locally.
 
-## 2. Running the PR workflow
+**The agent proposes, the workflow decides.** Everything around the agent is ordinary, tested Node code: working out which files changed, checking what the agent touched, running the tests and writing the report. The numbers in the PR comment come from the workflow's own test run, never from what the agent says about itself.
 
-**Prerequisites**
+**Several independent limits on the agent.** None of them is enough alone:
+- It has no web access. In the shell it can only run the test runner, the formatter and read-only git commands. It can't read `/proc` or the runner's dotfiles.
+- After it finishes, a guard throws the whole run away if anything other than test files changed. The patch is checked again just before it's committed.
+- The agent's instructions, permissions and the checking code are always taken from the base branch. A PR can't loosen the rules it's judged by.
+
+**PR code runs in a sandbox.** Installing dependencies and running tests happens as a separate Linux user with an empty environment and no network access. A malicious test, for example one planted through prompt injection, can't read the model token or send anything out.
+
+**Write access is kept away from PR code.** The workflow uses `pull_request`, not `pull_request_target`. The job that runs PR code only has read access, and the job that can push never runs PR code.
+
+**Tests are committed straight to the PR branch.** The agent only touches test files, and you review them in the same PR anyway. A separate PR just for tests would add a step without making anything safer.
+
+**Generated tests have to meet the repo's standards.** They must pass the strict typecheck, frontend tests must match the Prettier config, and all tests must follow the quality rules in section 3. Anything that doesn't is rejected rather than committed.
+
+## 2. Running it
+
+You need:
 1. This code on the repository's default branch.
-2. A repository secret: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, Claude Pro or Max) or `ANTHROPIC_API_KEY`.
-3. Optional variables:
-   - `PR_AGENT_ALLOWED_USERS`: GitHub logins allowed to trigger the agent, comma-separated with no spaces. Unset means only the repository owner.
-   - `PR_AGENT_MODEL`: defaults to `claude-sonnet-5-5`.
-   - `PR_AGENT_AUTO_COMMIT=false`: tests as a patch artifact instead of a commit.
+2. A repository secret holding the model credential. That's either `CLAUDE_CODE_OAUTH_TOKEN`, which you get from `claude setup-token` with a Claude Pro or Max plan, or an `ANTHROPIC_API_KEY`.
 
-**Trigger:** an allowed user opens or updates a non-draft PR, from a branch in the same repository, that changes app source.
+Three optional repository variables:
+- `PR_AGENT_ALLOWED_USERS` lists who may trigger the agent, as comma-separated GitHub logins. If it isn't set, only the repository owner can.
+- `PR_AGENT_MODEL` picks the model. The default is `claude-sonnet-5-5`.
+- `PR_AGENT_AUTO_COMMIT=false` attaches the tests as a patch file instead of committing them.
 
-**Results in the PR:**
-- one comment, updated in place, also copied to the job summary
-- a verification table: typecheck, format, tests, and coverage before and after
-- the agent's usage: turns, tokens, estimated cost and duration. It also goes into the agent's commit message
-- a `pr-agent-results` artifact with the raw plan, decision, guard, test and coverage files
-- a check that turns red when the agent's tests are rejected
+The agent runs when an allowed user opens or updates a non-draft PR, from a branch in the same repository, that changes application source. Each run leaves:
+- one comment on the PR, updated in place and copied into the job summary
+- a table with typecheck, formatting and test results, and coverage before and after
+- the tokens, turns, estimated cost and duration the agent used, also written into its commit message
+- a `pr-agent-results` artifact with the raw files behind all of the above
+- a red check if the agent's tests were rejected
 
-## 3. Where the agent and skills are defined and how they are used
+## 3. The agent and its skills
 
-| Piece | Location | Role during a run |
+| What | Where | What it does in a run |
 | --- | --- | --- |
-| `test-engineer` agent | [.claude/agents/test-engineer.md](.claude/agents/test-engineer.md) | Analyse → write tests → verify → report, ending in a fixed JSON report |
-| `pr-change-analysis` skill | [.claude/skills/](.claude/skills) | Per changed file: write, update or skip a test, with a reason |
-| `unit-test-quality` skill | same | The definition of a well-constructed unit test |
-| `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions and seams |
-| `test-verification` skill | same | Red/green loop, formatting, typecheck, and what counts as a valid green |
-| Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Orchestration and trust boundaries |
-| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Plan, guard, sandboxed runner, formatter, report, usage (53 tests) |
+| `test-engineer` agent | [.claude/agents/test-engineer.md](.claude/agents/test-engineer.md) | Analyses the change, writes the tests, verifies them and reports in a fixed JSON format |
+| `pr-change-analysis` skill | [.claude/skills/](.claude/skills) | Decides for each changed file whether to write a test, update one or skip it, and why |
+| `unit-test-quality` skill | same | Defines what a good unit test is |
+| `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions: what to fake and how |
+| `test-verification` skill | same | The run-fix-repeat loop, formatting, typecheck, and when a passing test actually counts |
+| Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Runs everything and enforces the trust boundaries |
+| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, formatter, report and usage, with 53 tests of its own |
 
-**A run, step by step:**
-1. **Plan:** each changed source file is mapped to its test file. Files with nothing to test are ignored with a reason: types, constants, styles, entry points.
-2. **Agent:** loads the skills, writes tests, and runs them, the typecheck and the formatter through the sandboxed runner until all are green.
-3. **Guard:** only test files may have changed.
-4. **Verify:** the workflow itself re-runs typecheck, the formatting check and the full suites with coverage.
-5. **Publish:** commit to the PR branch and update the comment.
+A run goes like this:
+1. The planner maps each changed source file to its test file. It ignores files with nothing to test, such as types, constants, styles and entry points.
+2. The agent loads its skills and writes tests. It runs them, the typecheck and the formatter until everything is green.
+3. The guard checks that only test files changed.
+4. The workflow runs the typecheck, the formatting check and the full test suites again, with coverage.
+5. The tests are committed to the PR branch and the comment is updated.
 
-**What counts as a well-constructed unit test.** The rule is defined once, in [`unit-test-quality`](.claude/skills/unit-test-quality/SKILL.md). Every test the agent writes must meet it. A test:
-1. proves one behaviour, and its name reads as a specification
-2. goes through the public interface only
-3. fails for the right reason: removing the source line it relies on turns it red
-4. uses expected values that are independent literals, with strict matchers
-5. covers the edges (boundaries, invalid input, error and empty states), not just the happy path
-6. fakes only at input and output boundaries
-7. is isolated and deterministic
-8. reads as arrange, act, assert, with no logic and nothing skipped
-9. is typed and formatted like production code: strict typecheck, no `@ts-ignore` or `as any` to silence errors, Prettier for frontend tests
+**What makes a good unit test.** This is written down once, in [`unit-test-quality`](.claude/skills/unit-test-quality/SKILL.md), and every test the agent writes has to follow it. A good test:
+1. checks one behaviour, and its name says which
+2. uses the module's public interface, not its internals
+3. fails if you break the code it checks
+4. compares against fixed expected values, with strict matchers
+5. covers the edge cases, not just the happy path
+6. only fakes the outside world: network, database, clock
+7. doesn't depend on other tests, the time or the network
+8. is easy to read, with no logic in the test and nothing skipped
+9. passes the typecheck and the formatter without tricks like `@ts-ignore` or `as any`
 
-The tests added to the existing app (the coverage table above) were written to these principles, and the rule now makes them explicit for the agent.
+The tests I added to the existing app follow the same rules. Writing them down made them explicit for the agent.
 
 ## 4. Example run
 
-**PR:** branch `demo/clear-completed-v2`. It adds a "Clear completed tasks" feature without tests: a backend route and repository method, plus a frontend API call, a mutation hook, a header button and page wiring. The feature also breaks two existing tests, a typed fake and an unmocked hook, so CI is red on the feature commit.
+The example PR is on the branch `demo/clear-completed-v2`. It adds a "Clear completed tasks" feature without any tests: a backend route and repository method, plus a frontend API call, a mutation hook, a header button and the page wiring. It also breaks two existing tests on purpose, so CI is red on the feature commit.
 
-**What happened:**
-- **Plan:** 7 targets across backend and frontend. `openapi.json` and `types.ts` were ignored.
-- **Agent:** the test-engineer committed `f0f1ddb` as `github-actions[bot]`, with 7 test files and +242 lines:
-  - **repaired:** `router.test.ts` (the fake store gained the new method) and `TodosPage.test.tsx` (the new hook mocked, plus clear-completed flows)
-  - **extended:** `repository.test.ts`, `todos.test.ts` and `TodosHeader.test.tsx`
-  - **created:** `useClearCompletedMutation.test.ts` and `queryKeys.test.ts`
-- **Verification and CI:** green on the bot's commit. Its agent check correctly shows as skipped, because bot commits never run the agent.
-- **Lessons fed back into the agent:**
-  - **Constants test:** `queryKeys.test.ts` checks that the new key sits under the `todos` prefix. That invariant is real, because the page's busy state depends on it. But the test restates the constant instead of exercising the behaviour, against rules 2 and 4. The planner now skips constants files, so the invariant gets tested where it matters: the page is busy while clearing.
-  - **Usage numbers:** the usage line in that commit counted only the coordinating agent. Usage now includes subagent work.
+The planner found 7 files to cover, across backend and frontend, and skipped `openapi.json` and `types.ts`.
 
-*Agent decision, skills used and verification table: copy from the PR comment.*
+The agent then committed `f0f1ddb` as `github-actions[bot]`, with 7 test files and 242 new lines:
+- It repaired `router.test.ts`, whose fake store was missing the new method, and `TodosPage.test.tsx`, which didn't mock the new hook. It also added tests for clearing tasks.
+- It extended `repository.test.ts`, `todos.test.ts` and `TodosHeader.test.tsx`.
+- It created `useClearCompletedMutation.test.ts` and `queryKeys.test.ts`.
+
+CI passed on the bot's commit. The agent's own check shows as skipped there, which is correct: the agent never runs on bot commits.
+
+Two lessons from this run went back into the agent:
+- The `queryKeys` test was weak. It checks that the new key sits under the `todos` prefix, which does matter, because the page's busy state depends on it. But it does that by repeating the constant instead of testing the behaviour. The planner now skips constants files, so that invariant has to be tested through the page itself.
+- The usage numbers were too low. They only counted the coordinating agent, not the subagent that did the work. They now include both.
+
+*The agent's decision, the skills it used and the verification table still need to be copied in from the PR comment.*
 
 ## 5. Assumptions
 
-- PRs come from branches in the same repository. Their authors are trusted to run code in CI, as normal CI already allows.
-- Unit tests use the existing stack (Vitest with supertest or Testing Library) and need no database or network.
-- One test file per source module is the right default. The agent may pick another file when it has a reason.
+- PRs come from branches in the same repository, and their authors are trusted to run code in CI, as with normal CI.
+- Unit tests use the existing stack (Vitest with supertest or Testing Library) and don't need a database or network.
+- One test file per source file is a sensible default, though the agent can pick another file if it has a reason.
 
 ## 6. Limitations and failure scenarios
 
-**Result quality: green does not mean useful.**
+**Passing tests aren't necessarily useful tests.**
 
-| Scenario | What the solution does | What remains |
+| What can go wrong | What prevents it | What's left |
 | --- | --- | --- |
-| Weak or tautological tests | Quality rules 3 and 4, and constants files skipped by the planner | Not detected automatically. Needs human review |
-| A bug written down as expected behaviour | The verification skill says to report suspected bugs, not assert them | The agent can still misjudge which behaviour is intended |
-| An existing test weakened to get green | Deletions are blocked, and the diff is visible in the PR | Edits that remove assertions aren't flagged |
-| A wrong "no tests needed" decision | The decision and its reason are shown in the comment | Nothing checks coverage of the changed lines |
-| Flaky tests | Fake timers and fakes for IO are required | Each test runs only once during verification |
+| Weak tests that can't really fail | Quality rules 3 and 4. The planner skips constants files | Nothing detects this automatically. It needs a human review |
+| A bug written down as the expected behaviour | The agent is told to report suspected bugs instead of asserting them | It can still misjudge what the code is meant to do |
+| An existing test weakened to make it pass | Deleting tests is blocked, and every change shows in the PR diff | Removing an assertion from a test isn't flagged |
+| The agent wrongly decides no tests are needed | Its reasoning is shown in the comment | Nothing checks whether the changed lines are covered |
+| Flaky tests | Fake timers and fake IO are required | Each test runs only once during verification |
 
-**Reliability**
+**Reliability.**
 
-| Scenario | What the solution does |
+| What can go wrong | What happens |
 | --- | --- |
-| Model outage, rate limit, turn or time limit hit | The run fails cleanly with a red check and a reason. Normal CI is unaffected |
-| Agent returns no report or a malformed one | Treated as a failure, never as a skip |
-| Partial or unformatted edits | Guard, formatting check and verification still apply. Only green, test-only changes are committed |
-| The branch moved during the run | The commit is refused, and the next push regenerates the tests |
+| The model is down or rate-limited, or the agent hits its turn or time limit | The run fails cleanly, with a red check and a reason. Normal CI isn't affected |
+| The agent returns no report, or a broken one | It counts as a failure, never as "nothing to do" |
+| The agent stops halfway, or leaves unformatted code | The guard and verification still run. Only green, test-only changes are committed |
+| Someone pushes while the agent is running | The commit is refused, and the next push starts over |
 | Two pushes in quick succession | The older run is cancelled |
-| A large PR | The diff is capped at 400 KB. Many targets can exhaust the turn limit |
+| A very large PR | The diff is capped at 400 KB, and many files can use up the turn limit |
 
-Problems found and fixed during the first real runs:
+The first real runs found four bugs, all fixed now:
 - the sandbox user couldn't read the checkout
 - the two users couldn't share the coverage folder
-- GitHub sometimes reports a stale base commit
-- usage counted only the coordinating agent
+- GitHub sometimes reports an outdated base commit
+- the usage numbers only counted the coordinating agent
 
-**Security**
+**Security.**
 
-| Threat | Control |
+| Threat | How it's handled |
 | --- | --- |
-| Prompt injection through PR content | No web tools. Bash limited to the runner, the formatter and read-only git. Edits outside tests are denied and caught by the guard |
-| A malicious test trying to steal the model key | Tests run as another OS user, with an empty environment and no network. The agent can't read `/proc` or the runner's dotfiles |
-| Test code tampering with results or approved files | The results folder is private. The patch is cut before verification and compared after |
-| A PR weakening its own checks | Agent config, permissions and tooling are loaded from the base branch |
-| Someone else spending the model token | Only users in `PR_AGENT_ALLOWED_USERS` (default: the owner) trigger the agent. Others, bots included, get a skip notice |
-| Fork PRs, or write access next to PR code | `pull_request` only. Fork PRs are skipped. The write token never runs PR code |
-| Supply chain | Actions pinned to commit SHAs. Dependencies installed from the lockfile, inside the sandbox |
-| Loops and cost | Bot-triggered runs are skipped. Each run is capped at 80 turns and 25 minutes |
+| Prompt injection hidden in the PR | No web tools, a shell limited to the runner, the formatter and read-only git, and edits outside tests denied and caught by the guard |
+| A malicious test trying to steal the model token | Tests run as another user, with an empty environment and no network. The agent can't read `/proc` or the runner's dotfiles |
+| Test code tampering with the results | The results folder is private. The patch is taken before the tests run and compared afterwards |
+| A PR weakening its own checks | The agent's instructions, permissions and tooling come from the base branch |
+| Someone else using up your tokens | Only users in `PR_AGENT_ALLOWED_USERS` trigger the agent. Everyone else, bots included, is skipped with a notice |
+| Pull requests from forks | They don't run the agent and never get secrets. Write access is never given to a job that runs PR code |
+| Compromised dependencies or actions | Actions are pinned to exact commits. Dependencies are installed from the lockfile, inside the sandbox |
+| The agent triggering itself, and runaway cost | Runs triggered by bots are skipped. Each run is capped at 80 turns and 25 minutes |
 
-**Known gap:** the patch isn't scanned for credentials before it is committed. That scan would be a last line of defence if a token ever reached a file.
+One known gap remains: the patch isn't scanned for secrets before it's committed. It would be a last safety net if a token ever ended up in a file.
 
-## 7. What I would change for production
+## 7. What I'd change for production
 
-- **Credentials:** scan each patch for secret patterns before committing, and use workload identity federation instead of a static token.
-- **Prove the tests are useful:**
-  - run the new tests against the base version of the source; they should fail there and pass on the PR
-  - report coverage of the changed lines
-  - flag removed assertions
-  - re-run new tests 3 times to catch flakiness
-- **Reliability:** one automatic retry when the model is unavailable.
-- **Fewer brittle fakes:** a shared typed fake per interface, and page tests that mock only the API layer, so interface changes stop breaking unrelated tests.
-- **Reuse:** a per-repo config file listing code areas, test locations and commands, so other repositories can use the agent without code changes.
-- **Quality over time:** an evaluation set of recorded PRs with expected decisions, re-run on every skill change, plus mutation testing on changed files.
+- Credentials: scan every patch for secrets before committing it, and replace the static token with short-lived credentials via workload identity federation.
+- Proving the tests are worth something:
+  - Run each new test against the code before the change. It should fail there and pass after.
+  - Report coverage of the changed lines specifically.
+  - Flag assertions that were removed from existing tests.
+  - Run new tests a few times to catch flakiness.
+- Retry once when the model is temporarily unavailable.
+- Less brittle fakes: one shared typed fake per interface, and page tests that only mock the API layer. Changing an interface then stops breaking unrelated tests.
+- Reuse: a small config file per repository, listing source folders, test locations and commands, so other projects can use the agent without code changes.
+- Track quality over time: keep a set of recorded PRs with known correct decisions, and re-run them whenever a skill changes. Mutation testing would add a second signal.
 
-**Spending fewer tokens.** Usage is already reported on every run, so each of these can be measured. In order of expected saving:
-1. **Don't run when there's nothing to do:**
-   - diff only the commits pushed since the last run, not the whole PR
-   - skip whitespace-only and comment-only changes and renames before the agent starts
-   - skip files whose changed lines are already covered by tests, using the baseline coverage the workflow already measures
-   - optionally, trigger on "ready for review" or a `/test-agent` comment instead of every push
-2. **Give the agent less to read.** The workflow pre-collects a context pack per file: the changed functions with surrounding code, the existing test, fixtures and types. That replaces exploratory searches and reads, which each cost a turn.
-3. **Make each run smaller:**
-   - run the agent directly instead of through a coordinating agent, which saves one context
-   - lower the limits to about 30 turns and 2 fix attempts per file
-   - use a small model to decide which files need tests, and a larger one only to write them
-   - keep the agent definition and skills stable, so prompt caching applies
+**Using fewer tokens.** Usage is now reported on every run, so the effect of each change can be measured. Roughly in order of savings:
+1. Don't run when there's nothing to do.
+   - Only look at commits pushed since the last run, not the whole PR.
+   - Skip whitespace-only, comment-only and rename-only changes before the agent starts.
+   - Skip files whose changed lines are already covered, using the coverage the workflow already measures.
+   - Consider running only when a PR is marked ready, or on a `/test-agent` comment.
+2. Give the agent less to read. Prepare the changed functions, the existing test, the fixtures and the relevant types up front, instead of letting the agent search for them turn by turn.
+3. Make each run smaller.
+   - Run the agent directly instead of through a coordinating agent.
+   - Lower the limits to about 30 turns and 2 fix attempts per file.
+   - Use a small model to decide which files need tests, and a bigger one only to write them.
+   - Keep the instructions stable, so prompt caching works.
 
-**Whole-codebase mode, as an alternative to PR mode.** A manually started or weekly workflow:
-1. picks the N least-covered files from the coverage report
-2. runs the same agent and skills on them under a fixed turn limit
-3. opens one PR with the new tests for approval
-
-The cost per run is fixed, and coverage rises a little each run.
+**A whole-codebase mode.** As an alternative to working PR by PR, a weekly or manually started workflow could pick the N least-covered files, run the same agent on them under a fixed turn limit, and open one PR with the new tests. That keeps the cost per run fixed while coverage goes up a little each time.

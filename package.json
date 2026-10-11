@@ -1,0 +1,11 @@
+{
+  "name": "taskly-app-node",
+  "private": true,
+  "description": "Repository tooling only: git hooks. The apps live in backend/ and frontend/.",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "9.1.7"
+  }
+}

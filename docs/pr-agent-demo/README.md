@@ -39,7 +39,8 @@ git checkout -b demo/clear-completed
 git apply docs/pr-agent-demo/clear-completed-tasks.patch
 git add -A
 git commit -m "feat: clear completed tasks"
-git push playground demo/clear-completed
+# --no-verify: the pre-push hook would stop this feature, which breaks two tests on purpose
+git push --no-verify playground demo/clear-completed
 ```
 
 On GitHub, open a pull request **in the playground repo**: `demo/clear-completed` → `main`.

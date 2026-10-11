@@ -11,10 +11,10 @@
 //   verify      <area> --dir d [--baseline]           typecheck + full suite with coverage
 //   decision    --dir d --execution-file f            extract the agent's JSON report and usage
 //   usage       --dir d                               print the agent's usage on one line
-//   guard       --dir d                               check the agent's working-tree edits
+//   guard       --dir d [--policy tests|refactor]     check the agent's working-tree edits
 //   patch       --dir d [--out f]                     write the guarded files as a patch (default d/tests.patch)
-//   check-patch --dir d --patch f                     re-check a patch before it is committed
-//   report      --dir d --run-url u --out f [--status s --reason r --sha x]
+//   check-patch --dir d --patch f [--policy p]        re-check a patch before it is committed
+//   report      --dir d --run-url u --out f [--mode tests|refactor --status s --reason r --sha x --pr-url u --pr-number n]
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -23,7 +23,7 @@ import { pathToFileURL } from "node:url";
 
 import { agentUsage, extractDecision, finalAgentText } from "./lib/decision.mjs";
 import { parseNameStatus, parsePorcelain, patchChanges } from "./lib/git.mjs";
-import { checkAgentChanges } from "./lib/guard.mjs";
+import { checkAgentChanges, checkRefactorChanges } from "./lib/guard.mjs";
 import { AREAS, TEST_FILE } from "./lib/paths.mjs";
 import { planChanges } from "./lib/plan.mjs";
 import { formatUsage, renderReport, summarizeCoverage, summarizeVitest } from "./lib/report.mjs";
@@ -197,13 +197,24 @@ function commandUsage({ flags }) {
   console.log(formatUsage(readJson(path.join(requireFlag(flags, "dir"), "usage.json"))));
 }
 
+// tests: the test agent may change test files only.
+// refactor: the testability agent may change the PR's sources, add modules next
+// to them and add new tests, but never edit existing tests.
+const POLICIES = { tests: checkAgentChanges, refactor: checkRefactorChanges };
+
+function policyFor(flags) {
+  const name = flags.policy ?? "tests";
+  if (!POLICIES[name]) throw new Error(`Unknown policy: ${name}`);
+  return POLICIES[name];
+}
+
 function commandGuard({ flags }) {
-  allowFlags(flags, ["dir"]);
+  allowFlags(flags, ["dir", "policy"]);
   const dir = requireFlag(flags, "dir");
   const plan = loadPlan(dir);
   const changes = parsePorcelain(git(["status", "--porcelain=v1", "-z", "-uall"]))
     .filter((change) => !MANAGED_PATHS.some((prefix) => change.path.startsWith(prefix)));
-  const result = checkAgentChanges(changes, plan);
+  const result = policyFor(flags)(changes, plan);
   writeJson(path.join(dir, "guard.json"), result);
   setOutputs({ ok: result.ok, changed: result.allowed.length > 0 });
   console.log(JSON.stringify(result, null, 2));
@@ -223,16 +234,16 @@ function commandPatch({ flags }) {
 }
 
 function commandCheckPatch({ flags }) {
-  allowFlags(flags, ["dir", "patch"]);
+  allowFlags(flags, ["dir", "patch", "policy"]);
   const plan = loadPlan(requireFlag(flags, "dir"));
   const changes = patchChanges(fs.readFileSync(requireFlag(flags, "patch"), "utf8"));
-  const result = checkAgentChanges(changes, plan);
+  const result = policyFor(flags)(changes, plan);
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok || !changes.length) process.exitCode = 1;
 }
 
 function commandReport({ flags }) {
-  allowFlags(flags, ["dir", "run-url", "out", "status", "reason", "sha"]);
+  allowFlags(flags, ["dir", "run-url", "out", "status", "reason", "sha", "mode", "pr-url", "pr-number"]);
   const dir = requireFlag(flags, "dir");
   const plan = loadPlan(dir);
   const verification = {};
@@ -249,12 +260,19 @@ function commandReport({ flags }) {
     };
   }
   const markdown = renderReport({
+    mode: flags.mode ?? "tests",
     plan,
     decision: readJson(path.join(dir, "decision.json")),
     guard: readJson(path.join(dir, "guard.json")),
     verification: plan.needsTests ? verification : {},
     usage: readJson(path.join(dir, "usage.json")),
-    outcome: { status: flags.status ?? "failed", reason: flags.reason, sha: flags.sha },
+    outcome: {
+      status: flags.status ?? "failed",
+      reason: flags.reason,
+      sha: flags.sha,
+      url: flags["pr-url"],
+      number: flags["pr-number"],
+    },
     runUrl: flags["run-url"] ?? "",
   });
   if (flags.out) fs.writeFileSync(flags.out, markdown);

@@ -1,10 +1,15 @@
 name: PR Test Agent
 
-# For every same-repository pull request that changes application source, a
-# Claude Code agent writes or updates unit tests for the changed code. The
-# workflow, not the agent, decides what is kept: it checks that only test files
-# changed, re-runs typecheck and the full suites with coverage, commits the
-# verified tests to the PR branch and posts one summary comment.
+# Two Claude Code agents share this workflow, the sandbox and the checks:
+#
+#   tests     every PR update: the test-engineer writes or updates unit tests for
+#             the changed code. Only test files may change. Verified tests are
+#             committed to the PR branch.
+#   refactor  on demand, when the `testability` label is added: the
+#             testability-refactorer extracts hard-to-test logic from the changed
+#             files into small, pure functions and tests them. Existing tests may
+#             not change, which proves behaviour is preserved. The result is
+#             opened as a separate PR into the feature branch, for approval.
 #
 # Trust boundaries
 #   generate  read-only token. PR code (npm install scripts, tests) runs only as
@@ -16,7 +21,7 @@ name: PR Test Agent
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "backend/src/**"
       - "frontend/src/**"
@@ -24,10 +29,12 @@ on:
 permissions: {}
 
 concurrency:
-  group: pr-test-agent-${{ github.event.pull_request.number }}
+  # One group per PR and mode; other labels get their own (skipped) group.
+  group: pr-agent-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name || 'tests' }}
   cancel-in-progress: true
 
 env:
+  MODE: ${{ github.event.action == 'labeled' && 'refactor' || 'tests' }}
   # The base branch by name: pull_request.base.sha can lag behind the branch tip,
   # and the tooling and diff base must be the current base branch.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -40,21 +47,23 @@ jobs:
   skip-notice:
     name: Skip (fork or not allowed)
     if: >-
-      github.event.pull_request.head.repo.full_name != github.repository ||
-      !((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
-        (vars.PR_AGENT_ALLOWED_USERS != '' && contains(format(',{0},', vars.PR_AGENT_ALLOWED_USERS), format(',{0},', github.actor))))
+      (github.event.action != 'labeled' || github.event.label.name == 'testability') &&
+      (github.event.pull_request.head.repo.full_name != github.repository ||
+       !((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
+         (vars.PR_AGENT_ALLOWED_USERS != '' && contains(format(',{0},', vars.PR_AGENT_ALLOWED_USERS), format(',{0},', github.actor)))))
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - env:
           ACTOR: ${{ github.actor }}
         run: |
-          echo "::notice::PR Test Agent skipped: it runs only for same-repository branches and for users in PR_AGENT_ALLOWED_USERS (default: the repository owner). Triggered by: $ACTOR"
-          echo "PR Test Agent skipped for \`$ACTOR\`: fork PRs and users outside PR_AGENT_ALLOWED_USERS do not run the agent." >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::PR agents skipped: they run only for same-repository branches and for users in PR_AGENT_ALLOWED_USERS (default: the repository owner). Triggered by: $ACTOR"
+          echo "PR agents skipped for \`$ACTOR\`: fork PRs and users outside PR_AGENT_ALLOWED_USERS do not run the agents." >> "$GITHUB_STEP_SUMMARY"
 
   generate:
-    name: Plan, write and verify tests
+    name: ${{ github.event.action == 'labeled' && 'Refactor for testability and verify' || 'Plan, write and verify tests' }}
     if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'testability') &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       ((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
@@ -105,7 +114,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Plan which tests the change needs
+      - name: Plan which source files changed
         id: plan
         run: node "$CLI" plan --dir "$RESULTS" --base "origin/$BASE_REF" --head "$HEAD_SHA"
 
@@ -176,7 +185,36 @@ jobs:
           if [ "${{ steps.plan.outputs.frontend }}" = "true" ]; then node "$CLI" verify frontend --dir "$RESULTS" --baseline || true; fi
           touch "$RUNNER_TEMP/dependencies-marker"
 
-      - name: Run the test-engineer agent
+      - name: Choose the agent for this mode
+        id: brief
+        if: steps.plan.outputs.needs_tests == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$MODE" = "refactor" ]; then
+            agent=testability-refactorer
+            task="Refactor the hard-to-test logic in the targets of .pr-agent/plan.json into small, pure, tested functions without changing behaviour, verify, and return your JSON report."
+            settings=claude-settings-refactor.json
+          else
+            agent=test-engineer
+            task="Write or update unit tests for the targets in .pr-agent/plan.json, verify them, and return your JSON report."
+            settings=claude-settings.json
+          fi
+          {
+            echo "settings=$RUNNER_TEMP/trusted/.github/pr-agent/$settings"
+            echo "prompt<<PROMPT_EOF"
+            echo "Pull request #$PR_NUMBER changed application source."
+            echo "The change plan is in .pr-agent/plan.json and the diff is in .pr-agent/pr.diff."
+            echo
+            echo "Delegate the work to the \`$agent\` subagent (defined in .claude/agents/$agent.md)"
+            echo "with this instruction: \"$task\" Let it finish its own steps; leave all file edits to it."
+            echo
+            echo "When the subagent returns, end your final message with its fenced \`json\`"
+            echo "report block, unchanged. That block is the only output the workflow reads."
+            echo "PROMPT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run the agent
         id: agent
         if: steps.plan.outputs.needs_tests == 'true'
         continue-on-error: true
@@ -188,23 +226,13 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
-          settings: ${{ runner.temp }}/trusted/.github/pr-agent/claude-settings.json
+          settings: ${{ steps.brief.outputs.settings }}
           claude_args: >-
             --model ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
             --max-turns 80
             --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/cli.mjs test:*),Bash(node scripts/pr-agent/cli.mjs typecheck:*),Bash(node scripts/pr-agent/cli.mjs format:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
             --disallowedTools "WebFetch,WebSearch"
-          prompt: |
-            Pull request #${{ github.event.pull_request.number }} changed application source.
-            The change plan is in .pr-agent/plan.json and the diff is in .pr-agent/pr.diff.
-
-            Delegate the work to the `test-engineer` subagent (defined in
-            .claude/agents/test-engineer.md) with this instruction: "Write or update unit
-            tests for the targets in .pr-agent/plan.json, verify them, and return your JSON
-            report." Let it finish its own steps; leave all file edits to it.
-
-            When the subagent returns, end your final message with its fenced `json`
-            report block, unchanged. That block is the only output the workflow reads.
+          prompt: ${{ steps.brief.outputs.prompt }}
 
       - name: Record the agent's decision
         if: steps.plan.outputs.needs_tests == 'true'
@@ -212,7 +240,7 @@ jobs:
           EXECUTION_FILE: ${{ steps.agent.outputs.execution_file }}
         run: node "$CLI" decision --dir "$RESULTS" --execution-file "${EXECUTION_FILE:-none}"
 
-      - name: Guard - only test files may change
+      - name: Guard - only files the mode allows may change
         id: guard
         if: steps.plan.outputs.needs_tests == 'true'
         continue-on-error: true
@@ -229,14 +257,14 @@ jobs:
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          node "$CLI" guard --dir "$RESULTS"
+          node "$CLI" guard --dir "$RESULTS" --policy "$MODE"
 
-      - name: Package the guarded tests as a patch
+      - name: Package the guarded changes as a patch
         id: package
         if: steps.guard.outcome == 'success' && steps.guard.outputs.changed == 'true'
         run: node "$CLI" patch --dir "$RESULTS"
 
-      - name: Verify - typecheck and full suites with coverage
+      - name: Verify - typecheck, formatting and full suites with coverage
         id: verify
         if: steps.package.outcome == 'success'
         continue-on-error: true
@@ -246,14 +274,14 @@ jobs:
           if [ "${{ steps.plan.outputs.frontend }}" = "true" ]; then node "$CLI" verify frontend --dir "$RESULTS" || status=1; fi
           exit $status
 
-      - name: Confirm verification left the tests untouched
+      - name: Confirm verification left the changes untouched
         id: integrity
         if: steps.verify.outcome == 'success'
         continue-on-error: true
         run: |
-          # Test code runs during verification and could rewrite test files after
-          # the guard approved them. The patch cut before verification must still
-          # match the working tree, or nothing is committed.
+          # Test code runs during verification and could rewrite files after the
+          # guard approved them. The patch cut before verification must still
+          # match the working tree, or nothing is published.
           node "$CLI" patch --dir "$RESULTS" --out "$RUNNER_TEMP/after-verify.patch"
           cmp "$RESULTS/tests.patch" "$RUNNER_TEMP/after-verify.patch"
 
@@ -271,12 +299,12 @@ jobs:
           mkdir -p "$RESULTS"
           if [ "$PLAN" != "success" ]; then status=failed; reason="the change plan could not be computed"
           elif [ "$NEEDS_TESTS" != "true" ]; then status=skipped; reason="no unit-testable application source changed"
-          elif [ "$GUARD" = "failure" ]; then status=rejected; reason="the agent changed files outside the test-only policy, so its work was discarded"
+          elif [ "$GUARD" = "failure" ]; then status=rejected; reason="the agent changed files outside its policy, so its work was discarded"
           elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete"
           elif [ "$CHANGED" != "true" ] && [ ! -f "$RESULTS/decision.json" ]; then status=failed; reason="the agent made no changes and returned no report; see the agent step log"
-          elif [ "$CHANGED" != "true" ]; then status=skipped; reason="the agent decided no test changes were needed"
-          elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the generated tests failed typecheck, formatting or the test suite"
-          elif [ "$INTEGRITY" != "success" ]; then status=rejected; reason="test files changed while the tests ran, so the verified result cannot be trusted"
+          elif [ "$CHANGED" != "true" ]; then status=skipped; reason="the agent decided no changes were needed"
+          elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the changes failed typecheck, formatting or the test suite"
+          elif [ "$INTEGRITY" != "success" ]; then status=rejected; reason="files changed while the tests ran, so the verified result cannot be trusted"
           else status=verified; reason=""
           fi
           jq -n --arg status "$status" --arg reason "$reason" '{status: $status, reason: $reason}' > "$RESULTS/status.json"
@@ -292,7 +320,7 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Commit verified tests and report
+    name: ${{ github.event.action == 'labeled' && 'Open refactor PR and report' || 'Commit verified tests and report' }}
     needs: generate
     if: always() && (needs.generate.result == 'success' || needs.generate.result == 'failure')
     runs-on: ubuntu-latest
@@ -323,8 +351,8 @@ jobs:
           echo "CLI=$GITHUB_WORKSPACE/trusted/scripts/pr-agent/cli.mjs" >> "$GITHUB_ENV"
           echo "status=$(jq -r .status "$RESULTS/status.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Check out the PR branch for committing
-        if: steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
+      - name: Check out the PR branch
+        if: steps.status.outputs.status == 'verified' && (env.MODE == 'refactor' || vars.PR_AGENT_AUTO_COMMIT != 'false')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
@@ -334,7 +362,7 @@ jobs:
 
       - name: Commit verified tests to the PR branch
         id: commit
-        if: steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
+        if: env.MODE == 'tests' && steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
         working-directory: pr
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -345,7 +373,7 @@ jobs:
             echo "reason=the branch moved while the agent was running; the next run will regenerate tests" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch"
+          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch" --policy tests
           git apply --index "$RESULTS/tests.patch"
           usage="$(node "$CLI" usage --dir "$RESULTS")"
           git -c user.name="github-actions[bot]" \
@@ -355,26 +383,66 @@ jobs:
           echo "status=committed" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Open the refactor as a PR into the feature branch
+        id: refactor-pr
+        if: env.MODE == 'refactor' && steps.status.outputs.status == 'verified'
+        working-directory: pr
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "status=rejected" >> "$GITHUB_OUTPUT"
+            echo "reason=the branch moved while the agent was running; add the label again to retry" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch" --policy refactor
+          branch="testability/pr-${PR_NUMBER}"
+          git checkout -q -b "$branch"
+          git apply --index "$RESULTS/tests.patch"
+          usage="$(node "$CLI" usage --dir "$RESULTS")"
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "refactor: extract testable logic for #${PR_NUMBER} [testability-agent]" -m "Agent usage: ${usage}"
+          # The bot owns this branch; each run replaces its previous proposal.
+          git push -q --force origin "HEAD:refs/heads/$branch"
+          existing="$(gh pr list --head "$branch" --base "$HEAD_REF" --state open --json number,url --jq '.[0] // empty')"
+          if [ -n "$existing" ]; then
+            url="$(jq -r .url <<< "$existing")"; number="$(jq -r .number <<< "$existing")"
+          else
+            url="$(gh pr create --base "$HEAD_REF" --head "$branch" \
+              --title "Refactor for testability: #${PR_NUMBER}" \
+              --body "Proposed by the testability agent for #${PR_NUMBER}: logic extracted into small, tested functions. Existing tests are unchanged and pass. Review it like any PR; merge it into \`${HEAD_REF}\` to take it, or close it.")"
+            number="${url##*/}"
+          fi
+          echo "status=pr-opened" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
       - name: Render report
         id: render
         env:
           RUN_STATUS: ${{ steps.status.outputs.status }}
-          COMMIT_STATUS: ${{ steps.commit.outputs.status }}
-          COMMIT_REASON: ${{ steps.commit.outputs.reason }}
-          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+          COMMIT_STATUS: ${{ steps.commit.outputs.status || steps.refactor-pr.outputs.status }}
+          COMMIT_REASON: ${{ steps.commit.outputs.reason || steps.refactor-pr.outputs.reason }}
+          COMMIT_OUTCOME: ${{ env.MODE == 'refactor' && steps.refactor-pr.outcome || steps.commit.outcome }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          PR_URL: ${{ steps.refactor-pr.outputs.url }}
+          PR_NUMBER: ${{ steps.refactor-pr.outputs.number }}
           AUTO_COMMIT: ${{ vars.PR_AGENT_AUTO_COMMIT }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           status="$RUN_STATUS"; reason="$(jq -r '.reason // ""' "$RESULTS/status.json")"; sha=""
           if [ "$RUN_STATUS" = "verified" ]; then
-            if [ "$AUTO_COMMIT" = "false" ]; then status=proposed
-            elif [ "$COMMIT_OUTCOME" = "failure" ]; then status=rejected; reason="the verified patch could not be committed (see the workflow log)"
+            if [ "$MODE" = "tests" ] && [ "$AUTO_COMMIT" = "false" ]; then status=proposed
+            elif [ "$COMMIT_OUTCOME" = "failure" ]; then status=rejected; reason="the verified changes could not be published (see the workflow log)"
             else status="$COMMIT_STATUS"; reason="$COMMIT_REASON"; sha="$COMMIT_SHA"
             fi
           fi
-          node "$CLI" report --dir "$RESULTS" --run-url "$RUN_URL" --out "$RUNNER_TEMP/comment.md" \
-            --status "$status" --reason "$reason" --sha "$sha"
+          node "$CLI" report --dir "$RESULTS" --mode "$MODE" --run-url "$RUN_URL" --out "$RUNNER_TEMP/comment.md" \
+            --status "$status" --reason "$reason" --sha "$sha" --pr-url "$PR_URL" --pr-number "$PR_NUMBER"
           cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           { echo "reason<<REASON_EOF"; echo "$reason"; echo "REASON_EOF"; } >> "$GITHUB_OUTPUT"
@@ -387,7 +455,8 @@ jobs:
           script: |
             const fs = require('node:fs');
             const body = fs.readFileSync(process.env.COMMENT_FILE, 'utf8');
-            const marker = '<!-- taskly-pr-test-agent -->';
+            // One comment per agent: the first line of the body is its marker.
+            const marker = body.split('\n', 1)[0];
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
@@ -395,12 +464,24 @@ jobs:
             if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
 
+      - name: Remove the testability label so it can be added again
+        if: always() && env.MODE == 'refactor'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.rest.issues.removeLabel({
+              ...context.repo,
+              issue_number: context.payload.pull_request.number,
+              name: 'testability',
+            });
+
       # The comment carries the detail; the check's colour carries the verdict.
-      - name: Fail the check when the agent's tests were not accepted
+      - name: Fail the check when the agent's work was not accepted
         if: steps.render.outputs.status == 'failed' || steps.render.outputs.status == 'rejected'
         env:
           STATUS: ${{ steps.render.outputs.status }}
           REASON: ${{ steps.render.outputs.reason }}
         run: |
-          echo "::error::PR Test Agent ${STATUS}: ${REASON}"
+          echo "::error::PR agent (${MODE}) ${STATUS}: ${REASON}"
           exit 1

@@ -8,6 +8,7 @@ import {
   sanitizeAgentText,
   summarizeCoverage,
   summarizeVitest,
+  TESTABILITY_MARKER,
 } from "./report.mjs";
 
 const usage = {
@@ -150,6 +151,24 @@ test("renderReport shows the agent decision, guard, verification and coverage de
   assert.match(markdown, /Committed .*abc1234/);
   assert.match(markdown, /README\.md/);
   assert.match(markdown, /actions\/runs\/1/);
+});
+
+test("renderReport in refactor mode uses its own title and marker and links the opened PR", () => {
+  const markdown = renderReport({
+    mode: "refactor",
+    plan,
+    decision: { decision: "refactored", summary: "Extracted completed-task filtering.", skills_used: ["testability-review"], files: [], skipped: [] },
+    guard: { ok: true, allowed: ["backend/src/features/todos/completed.ts"], violations: [] },
+    verification: {},
+    outcome: { status: "pr-opened", url: "https://github.com/o/r/pull/15", number: 15 },
+    runUrl: "https://github.com/o/r/actions/runs/4",
+  });
+
+  assert.ok(markdown.startsWith(TESTABILITY_MARKER));
+  assert.ok(!markdown.includes(REPORT_MARKER));
+  assert.match(markdown, /## 🧩 Testability Agent/);
+  assert.match(markdown, /Opened #15 .*https:\/\/github\.com\/o\/r\/pull\/15/);
+  assert.match(markdown, /`refactored`/);
 });
 
 test("renderReport shows the formatting result of frontend tests", () => {

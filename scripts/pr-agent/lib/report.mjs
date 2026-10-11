@@ -2,6 +2,7 @@
 // the guard result, test/coverage numbers measured by the workflow, and the
 // agent's self-reported decision (sanitised, and labelled as the agent's).
 export const REPORT_MARKER = "<!-- taskly-pr-test-agent -->";
+export const TESTABILITY_MARKER = "<!-- taskly-testability-agent -->";
 
 const ICON = { success: "✅", failure: "❌", skipped: "⏭️", cancelled: "⏹️" };
 
@@ -104,6 +105,8 @@ function outcomeLine(outcome, guard) {
       return `✅ Committed ${guard?.allowed?.length ?? 0} test file(s) to this branch in ${code(String(outcome.sha).slice(0, 7))}.`;
     case "proposed":
       return "📎 Verified tests are attached as a patch artifact (auto-commit is disabled).";
+    case "pr-opened":
+      return `🔀 Opened #${Number(outcome.number)} with the refactor and its tests, for your review: ${String(outcome.url).replace(/[\s()<>]/g, "")}`;
     case "skipped":
       return `⏭️ Skipped: ${sanitizeAgentText(outcome.reason)}.`;
     default:
@@ -111,8 +114,14 @@ function outcomeLine(outcome, guard) {
   }
 }
 
-export function renderReport({ plan, decision, guard, verification = {}, usage = null, outcome, runUrl }) {
-  const lines = [REPORT_MARKER, "## 🧪 PR Test Agent", "", `**Outcome:** ${outcomeLine(outcome, guard)}`, ""];
+const MODES = {
+  tests: { marker: REPORT_MARKER, title: "## 🧪 PR Test Agent" },
+  refactor: { marker: TESTABILITY_MARKER, title: "## 🧩 Testability Agent" },
+};
+
+export function renderReport({ mode = "tests", plan, decision, guard, verification = {}, usage = null, outcome, runUrl }) {
+  const { marker, title } = MODES[mode] ?? MODES.tests;
+  const lines = [marker, title, "", `**Outcome:** ${outcomeLine(outcome, guard)}`, ""];
   if (usage) lines.push(`**Agent usage:** ${formatUsage(usage)}`, "");
 
   if (decision) {

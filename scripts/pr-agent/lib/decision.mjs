@@ -1,7 +1,14 @@
 // Reads the agent's self-reported decision. The agent ends its run with a
 // fenced json block; anything that does not match the contract is discarded
 // and the report says so instead of guessing.
-export const DECISIONS = ["tests_added", "tests_updated", "no_tests_needed", "abstained"];
+export const DECISIONS = [
+  // test-engineer
+  "tests_added", "tests_updated", "no_tests_needed",
+  // testability-refactorer
+  "refactored", "no_refactor_needed",
+  // both
+  "abstained",
+];
 
 const isString = (value) => typeof value === "string";
 const isStringArray = (value) => Array.isArray(value) && value.every(isString);

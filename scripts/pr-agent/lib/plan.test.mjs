@@ -72,6 +72,7 @@ test("ignores files that are not unit-testable application source", () => {
       { path: "frontend/src/features/todos/index.ts", status: "M" },
       { path: "frontend/src/features/todos/types.ts", status: "M" },
       { path: "frontend/src/vite-env.d.ts", status: "M" },
+      { path: "frontend/src/features/todos/api/queryKeys.ts", status: "M" },
       { path: "backend/src/core/config.ts", status: "D" },
     ],
     { fileExists: none },
@@ -80,7 +81,7 @@ test("ignores files that are not unit-testable application source", () => {
   assert.equal(plan.needsTests, false);
   assert.deepEqual(plan.areas, []);
   assert.deepEqual(plan.targets, []);
-  assert.equal(plan.ignored.length, 16);
+  assert.equal(plan.ignored.length, 17);
   assert.ok(plan.ignored.every((entry) => typeof entry.reason === "string" && entry.reason));
 });
 

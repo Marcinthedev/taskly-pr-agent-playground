@@ -111,6 +111,12 @@ test("extractDecision rejects unknown decisions and malformed shapes", () => {
   assert.equal(extractDecision(wrap({ ...valid, files: [{ path: 3 }] })), null);
 });
 
+test("extractDecision accepts the testability agent's decisions", () => {
+  const wrap = (value) => `\`\`\`json\n${JSON.stringify(value)}\n\`\`\``;
+  assert.equal(extractDecision(wrap({ ...valid, decision: "refactored" }))?.decision, "refactored");
+  assert.equal(extractDecision(wrap({ ...valid, decision: "no_refactor_needed" }))?.decision, "no_refactor_needed");
+});
+
 test("extractDecision fills optional arrays", () => {
   const text = "```json\n" + JSON.stringify({ decision: "no_tests_needed", summary: "Docs only." }) + "\n```";
   assert.deepEqual(extractDecision(text), {

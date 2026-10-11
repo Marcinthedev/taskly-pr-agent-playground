@@ -8,6 +8,7 @@ Pull requests that change application source get unit tests written, verified an
 
 ```sh
 cp .env.example .env
+npm install   # at the repository root: enables the pre-push hook (typecheck, Prettier, related tests)
 ```
 
 ## Docker

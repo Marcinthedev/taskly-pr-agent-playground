@@ -24,6 +24,8 @@ const FRONTEND_IGNORED = [
   [/\.variants\.ts$/, "style variants"],
   [/(^|\/)types\.ts$/, "type-only module"],
   [/(^|\/)index\.ts$/, "barrel re-export"],
+  // Mirrors the coverage exclusions in vite.config.ts: constants only, nothing to test.
+  [/(^|\/)queryKeys\.ts$/, "constant query keys"],
   [/\.d\.ts$/, "type declarations"],
 ];
 

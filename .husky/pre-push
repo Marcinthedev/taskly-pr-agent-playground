@@ -1,18 +1,13 @@
-# Fast local checks before code leaves your machine: the problems CI would
-# report, minutes earlier. CI stays the authority; `git push --no-verify` skips
-# this hook (needed, for example, to push the demo feature that breaks tests on
-# purpose).
+# Typecheck, Prettier and related tests for what's being pushed. Skip with `git push --no-verify`.
 set -e
 
-if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)" 2>/dev/null; then
-  echo "pre-push: Node.js 22+ is required, found $(node -v 2>/dev/null || echo none). Switch with nvm, or push with --no-verify."
+if ! node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 18) ? 0 : 1)" 2>/dev/null; then
+  echo "pre-push: Node.js 22.18+ is required, found $(node -v 2>/dev/null || echo none). Switch with nvm, or push with --no-verify."
   exit 1
 fi
 
-# Compare with what the remote already has: the upstream branch, or origin/main
-# for a branch that was never pushed.
 base="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo origin/main)"
-changed="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- backend frontend 2>/dev/null || true)"
+changed="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- backend frontend scripts/pr-agent 2>/dev/null || true)"
 [ -z "$changed" ] && exit 0
 
 if printf '%s\n' "$changed" | grep -q '^backend/'; then
@@ -29,4 +24,10 @@ if printf '%s\n' "$changed" | grep -q '^frontend/'; then
     (cd frontend && npx prettier --check --end-of-line auto $files)
   fi
   (cd frontend && npx vitest run --changed "$base" --passWithNoTests)
+fi
+
+if printf '%s\n' "$changed" | grep -q '^scripts/pr-agent/'; then
+  echo "pre-push: PR agent tooling typecheck and tests"
+  [ -d scripts/pr-agent/node_modules ] || (cd scripts/pr-agent && npm ci --silent --no-audit --no-fund)
+  (cd scripts/pr-agent && npm run --silent typecheck && npm test --silent)
 fi

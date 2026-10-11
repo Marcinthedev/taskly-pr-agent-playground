@@ -70,7 +70,6 @@ describe("HTTP hardening", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
-    // TLS terminates at the proxy; upgrading here breaks plain-http local docs.
     expect(response.headers["content-security-policy"]).not.toContain("upgrade-insecure-requests");
     expect(response.headers["x-powered-by"]).toBeUndefined();
   });

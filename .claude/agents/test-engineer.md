@@ -30,9 +30,9 @@ Your edits land in test files only: `backend/tests/**` and `frontend/src/**/*.te
 Execute code only through the sandboxed runner:
 
 ```sh
-node scripts/pr-agent/cli.mjs test <backend|frontend> <test files...>
-node scripts/pr-agent/cli.mjs typecheck <backend|frontend>
-node scripts/pr-agent/cli.mjs format frontend <test files...>
+node scripts/pr-agent/pr-agent.ts test <backend|frontend> <test files...>
+node scripts/pr-agent/pr-agent.ts typecheck <backend|frontend>
+node scripts/pr-agent/pr-agent.ts format frontend <test files...>
 ```
 
 ## Report

@@ -1,9 +1,9 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
-import { planChanges } from "./plan.mjs";
+import { planChanges } from "./change-plan.ts";
 
-const none = () => false;
+const nothingExists = () => false;
 
 test("maps backend source files to backend/tests/<name>.test.ts", () => {
   const existing = new Set(["backend/tests/router.test.ts"]);
@@ -41,7 +41,7 @@ test("maps frontend source files to co-located test files with the same extensio
       { path: "frontend/src/features/todos/components/TodoItem.tsx", status: "M" },
       { path: "frontend/src/features/todos/hooks/useTodosQuery.ts", status: "M" },
     ],
-    { fileExists: none },
+    { fileExists: nothingExists },
   );
 
   assert.deepEqual(plan.areas, ["frontend"]);
@@ -75,14 +75,14 @@ test("ignores files that are not unit-testable application source", () => {
       { path: "frontend/src/features/todos/api/queryKeys.ts", status: "M" },
       { path: "backend/src/core/config.ts", status: "D" },
     ],
-    { fileExists: none },
+    { fileExists: nothingExists },
   );
 
   assert.equal(plan.needsTests, false);
   assert.deepEqual(plan.areas, []);
   assert.deepEqual(plan.targets, []);
   assert.equal(plan.ignored.length, 17);
-  assert.ok(plan.ignored.every((entry) => typeof entry.reason === "string" && entry.reason));
+  assert.ok(plan.ignored.every((entry) => entry.reason.length > 0));
 });
 
 test("records test files changed by the PR author separately", () => {
@@ -91,14 +91,11 @@ test("records test files changed by the PR author separately", () => {
       { path: "backend/tests/router.test.ts", status: "M" },
       { path: "frontend/src/lib/http.test.ts", status: "M" },
     ],
-    { fileExists: none },
+    { fileExists: nothingExists },
   );
 
   assert.equal(plan.needsTests, false);
-  assert.deepEqual(plan.changedTests, [
-    "backend/tests/router.test.ts",
-    "frontend/src/lib/http.test.ts",
-  ]);
+  assert.deepEqual(plan.changedTests, ["backend/tests/router.test.ts", "frontend/src/lib/http.test.ts"]);
 });
 
 test("normalizes Windows separators and de-duplicates paths", () => {
@@ -107,7 +104,7 @@ test("normalizes Windows separators and de-duplicates paths", () => {
       { path: "frontend\\src\\lib\\http.ts", status: "M" },
       { path: "frontend/src/lib/http.ts", status: "M" },
     ],
-    { fileExists: none },
+    { fileExists: nothingExists },
   );
 
   assert.equal(plan.targets.length, 1);
@@ -115,10 +112,7 @@ test("normalizes Windows separators and de-duplicates paths", () => {
 });
 
 test("treats paths that escape the repository as ignored", () => {
-  const plan = planChanges(
-    [{ path: "backend/src/../../etc/passwd.ts", status: "M" }],
-    { fileExists: none },
-  );
+  const plan = planChanges([{ path: "backend/src/../../etc/passwd.ts", status: "M" }], { fileExists: nothingExists });
 
   assert.equal(plan.needsTests, false);
   assert.match(plan.ignored[0].reason, /unsafe/);

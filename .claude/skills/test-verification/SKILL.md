@@ -8,9 +8,9 @@ description: Runs and fixes newly written unit tests in the credential-free sand
 A test counts only once you have watched it pass. Run everything through the sandboxed runner; it strips credentials from the environment and accepts only test files of one area.
 
 ```sh
-node scripts/pr-agent/cli.mjs test backend backend/tests/router.test.ts
-node scripts/pr-agent/cli.mjs test frontend frontend/src/lib/http.test.ts
-node scripts/pr-agent/cli.mjs typecheck backend
+node scripts/pr-agent/pr-agent.ts test backend backend/tests/router.test.ts
+node scripts/pr-agent/pr-agent.ts test frontend frontend/src/lib/http.test.ts
+node scripts/pr-agent/pr-agent.ts typecheck backend
 ```
 
 ## Loop, per touched test file
@@ -22,7 +22,7 @@ node scripts/pr-agent/cli.mjs typecheck backend
 3. After three red runs of the same file, revert it (`git restore -- <file>` for an existing file, `git clean -f -- <file>` for one you created) and record it in `skipped`.
 
 Then, for each touched area:
-1. **Format** the frontend test files you touched: `node scripts/pr-agent/cli.mjs format frontend <files>`. The workflow rejects unformatted frontend tests.
+1. **Format** the frontend test files you touched: `node scripts/pr-agent/pr-agent.ts format frontend <files>`. The workflow rejects unformatted frontend tests.
 2. **Typecheck** the area. Type errors in your tests are test mistakes. Fix them with real types, never `@ts-ignore` or `as any` (rule 9).
 3. **Re-run** the touched files once more after any formatting or type fixes.
 

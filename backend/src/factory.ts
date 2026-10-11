@@ -12,9 +12,7 @@ import { createTodosRouter } from "./features/todos/router.js";
 import type { Database } from "./features/todos/types.js";
 
 export interface AppOptions {
-  /** Origins allowed to call the API cross-origin; empty means same-origin only. */
   corsOrigins?: string[];
-  /** Per-client limit for the task API. */
   rateLimit?: { windowMs: number; limit: number };
 }
 
@@ -26,16 +24,14 @@ export function createApp(
   const app = express();
 
   app.disable("x-powered-by");
-  // TLS terminates at the ingress, which owns HTTPS upgrades; upgrading here
-  // would break the Swagger UI on plain-http local runs.
+  // HTTPS upgrades belong to the TLS-terminating proxy; here they'd break /docs over plain HTTP.
   app.use(helmet({ contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } } }));
   if (corsOrigins.length) {
     app.use(cors({ origin: corsOrigins, methods: ["GET", "POST", "PATCH", "DELETE"] }));
   }
   app.enable("case sensitive routing");
   app.enable("strict routing");
-  // Exactly one reverse proxy (nginx in compose) sits in front of the API.
-  // Trusting every hop would let clients spoof their IP via X-Forwarded-For.
+  // One proxy (nginx) in front; trusting more hops would let clients spoof their IP.
   app.set("trust proxy", 1);
 
   app.use((req, res, next) => {

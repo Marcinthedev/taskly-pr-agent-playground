@@ -13,8 +13,6 @@ const appConfigSchema = z.object({
   LOG_LEVEL: z
     .enum(["error", "warn", "info", "debug", "silent"])
     .default("info"),
-  // Comma-separated browser origins allowed to call the API cross-origin.
-  // Empty (the default) means same-origin only, as when nginx serves both.
   CORS_ORIGINS: z
     .string()
     .default("")
@@ -27,7 +25,6 @@ const appConfigSchema = z.object({
     .refine((origins) => origins.every(isBareOrigin), {
       message: "must be comma-separated http(s) origins without paths",
     }),
-  // Task API requests allowed per client IP per minute.
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
 });
 

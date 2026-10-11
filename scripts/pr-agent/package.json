@@ -1,0 +1,17 @@
+{
+  "name": "pr-agent-tooling",
+  "private": true,
+  "description": "Deterministic tooling around the PR agents. Runs only in the PR workflow and its own CI job; not part of any app build.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"lib/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

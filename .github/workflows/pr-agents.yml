@@ -1,23 +1,4 @@
-name: PR Test Agent
-
-# Two Claude Code agents share this workflow, the sandbox and the checks:
-#
-#   tests     every PR update: the test-engineer writes or updates unit tests for
-#             the changed code. Only test files may change. Verified tests are
-#             committed to the PR branch.
-#   refactor  on demand, when the `testability` label is added: the
-#             testability-refactorer extracts hard-to-test logic from the changed
-#             files into small, pure functions and tests them. Existing tests may
-#             not change, which proves behaviour is preserved. The result is
-#             opened as a separate PR into the feature branch, for approval.
-#
-# Trust boundaries
-#   generate  read-only token. PR code (npm install scripts, tests) runs only as
-#             the unprivileged `prsandbox` user with an empty environment and
-#             no network, so it cannot read the model key from the agent's
-#             environment or /proc, and cannot exfiltrate anything.
-#   publish   write token. Never executes PR code: it re-checks the patch with
-#             tooling from the base branch, applies it with git and pushes.
+name: PR agents
 
 on:
   pull_request:
@@ -29,21 +10,16 @@ on:
 permissions: {}
 
 concurrency:
-  # One group per PR and mode; other labels get their own (skipped) group.
   group: pr-agent-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && github.event.label.name || 'tests' }}
   cancel-in-progress: true
 
 env:
   MODE: ${{ github.event.action == 'labeled' && 'refactor' || 'tests' }}
-  # The base branch by name: pull_request.base.sha can lag behind the branch tip,
-  # and the tooling and diff base must be the current base branch.
+  # pull_request.base.sha can lag behind the branch tip, so tooling and diffs use the branch name.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 jobs:
-  # Who may spend the model token: users listed in the PR_AGENT_ALLOWED_USERS
-  # repository variable (comma-separated, no spaces), or only the repository
-  # owner when it is unset. Fork PRs never run: they get no secrets.
   skip-notice:
     name: Skip (fork or not allowed)
     if: >-
@@ -101,13 +77,13 @@ jobs:
           RESULTS="$RUNNER_TEMP/pr-agent"
           mkdir -p "$RESULTS"
           mv .trusted-base "$TRUSTED"
-          if [ ! -f "$TRUSTED/scripts/pr-agent/cli.mjs" ]; then
+          if [ ! -f "$TRUSTED/scripts/pr-agent/pr-agent.ts" ]; then
             echo "::error::The base branch has no PR agent. Merge the agent into the base branch first; the PR's own copy is never trusted."
             exit 1
           fi
           echo "TRUSTED=$TRUSTED" >> "$GITHUB_ENV"
           echo "RESULTS=$RESULTS" >> "$GITHUB_ENV"
-          echo "CLI=$TRUSTED/scripts/pr-agent/cli.mjs" >> "$GITHUB_ENV"
+          echo "CLI=$TRUSTED/scripts/pr-agent/pr-agent.ts" >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -140,15 +116,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo useradd --create-home --shell /usr/sbin/nologin "$PR_AGENT_SANDBOX_USER"
-          # The workspace lives under the runner's home, which other users cannot
-          # enter. Grant pass-through only (o+x, no listing) on its ancestors...
+          # The sandbox user may pass through the runner home to reach the checkout, but not list or read it.
           dir="$GITHUB_WORKSPACE"
           while [ "$dir" != "/" ]; do sudo chmod o+x "$dir"; dir="$(dirname "$dir")"; done
-          # ...and keep everything else in the runner's home private.
-          # Top level is enough: a closed directory hides everything below it.
-          # Symlinks are skipped so system folders they point to stay untouched.
           sudo find "$HOME" -mindepth 1 -maxdepth 1 ! -name work ! -type l -exec chmod go-rwx {} +
-          # The sandbox may write only the two packages; .git and $RUNNER_TEMP stay private.
           chmod -R a+rwX backend frontend
           chmod -R go-rwx .git "$RUNNER_TEMP"
 
@@ -194,11 +165,11 @@ jobs:
           if [ "$MODE" = "refactor" ]; then
             agent=testability-refactorer
             task="Refactor the hard-to-test logic in the targets of .pr-agent/plan.json into small, pure, tested functions without changing behaviour, verify, and return your JSON report."
-            settings=claude-settings-refactor.json
+            settings=testability-refactorer.settings.json
           else
             agent=test-engineer
             task="Write or update unit tests for the targets in .pr-agent/plan.json, verify them, and return your JSON report."
-            settings=claude-settings.json
+            settings=test-engineer.settings.json
           fi
           {
             echo "settings=$RUNNER_TEMP/trusted/.github/pr-agent/$settings"
@@ -221,8 +192,6 @@ jobs:
         timeout-minutes: 25
         uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
         with:
-          # Set one of the two secrets: an Anthropic Console API key, or a Claude
-          # subscription token from `claude setup-token`.
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -230,7 +199,7 @@ jobs:
           claude_args: >-
             --model ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
             --max-turns 80
-            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/cli.mjs test:*),Bash(node scripts/pr-agent/cli.mjs typecheck:*),Bash(node scripts/pr-agent/cli.mjs format:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
+            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/pr-agent.ts test:*),Bash(node scripts/pr-agent/pr-agent.ts typecheck:*),Bash(node scripts/pr-agent/pr-agent.ts format:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
             --disallowedTools "WebFetch,WebSearch"
           prompt: ${{ steps.brief.outputs.prompt }}
 
@@ -246,7 +215,6 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          # Installed dependencies must be exactly what npm ci produced (tool caches excepted).
           [ -f "$RUNNER_TEMP/dependencies-marker" ] || { echo "::error::dependency marker missing"; exit 1; }
           changed_deps="$(find backend/node_modules frontend/node_modules \
             \( -path '*/.vite' -o -path '*/.vitest' -o -path '*/.cache' \) -prune -o \
@@ -279,11 +247,8 @@ jobs:
         if: steps.verify.outcome == 'success'
         continue-on-error: true
         run: |
-          # Test code runs during verification and could rewrite files after the
-          # guard approved them. The patch cut before verification must still
-          # match the working tree, or nothing is published.
           node "$CLI" patch --dir "$RESULTS" --out "$RUNNER_TEMP/after-verify.patch"
-          cmp "$RESULTS/tests.patch" "$RUNNER_TEMP/after-verify.patch"
+          cmp "$RESULTS/changes.patch" "$RUNNER_TEMP/after-verify.patch"
 
       - name: Record the run status
         if: always()
@@ -348,7 +313,7 @@ jobs:
         run: |
           RESULTS="$RUNNER_TEMP/pr-agent"
           echo "RESULTS=$RESULTS" >> "$GITHUB_ENV"
-          echo "CLI=$GITHUB_WORKSPACE/trusted/scripts/pr-agent/cli.mjs" >> "$GITHUB_ENV"
+          echo "CLI=$GITHUB_WORKSPACE/trusted/scripts/pr-agent/pr-agent.ts" >> "$GITHUB_ENV"
           echo "status=$(jq -r .status "$RESULTS/status.json")" >> "$GITHUB_OUTPUT"
 
       - name: Check out the PR branch
@@ -357,7 +322,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           path: pr
-          # Credentials are needed to push; nothing from this checkout is executed.
           persist-credentials: true
 
       - name: Commit verified tests to the PR branch
@@ -373,8 +337,8 @@ jobs:
             echo "reason=the branch moved while the agent was running; the next run will regenerate tests" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch" --policy tests
-          git apply --index "$RESULTS/tests.patch"
+          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/changes.patch" --policy tests
+          git apply --index "$RESULTS/changes.patch"
           usage="$(node "$CLI" usage --dir "$RESULTS")"
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
@@ -398,15 +362,14 @@ jobs:
             echo "reason=the branch moved while the agent was running; add the label again to retry" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch" --policy refactor
+          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/changes.patch" --policy refactor
           branch="testability/pr-${PR_NUMBER}"
           git checkout -q -b "$branch"
-          git apply --index "$RESULTS/tests.patch"
+          git apply --index "$RESULTS/changes.patch"
           usage="$(node "$CLI" usage --dir "$RESULTS")"
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
               commit -q -m "refactor: extract testable logic for #${PR_NUMBER} [testability-agent]" -m "Agent usage: ${usage}"
-          # The bot owns this branch; each run replaces its previous proposal.
           git push -q --force origin "HEAD:refs/heads/$branch"
           existing="$(gh pr list --head "$branch" --base "$HEAD_REF" --state open --json number,url --jq '.[0] // empty')"
           if [ -n "$existing" ]; then
@@ -476,7 +439,6 @@ jobs:
               name: 'testability',
             });
 
-      # The comment carries the detail; the check's colour carries the verdict.
       - name: Fail the check when the agent's work was not accepted
         if: steps.render.outputs.status == 'failed' || steps.render.outputs.status == 'rejected'
         env:

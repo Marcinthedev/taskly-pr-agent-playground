@@ -17,7 +17,7 @@ The testability-refactorer goes after exactly that. It looks at the files a PR c
 | The agent | [.claude/agents/testability-refactorer.md](.claude/agents/testability-refactorer.md) |
 | Finding candidates | [.claude/skills/testability-review/](.claude/skills/testability-review/SKILL.md) |
 | Extracting without changing behaviour | [.claude/skills/safe-refactor/](.claude/skills/safe-refactor/SKILL.md) |
-| Its permissions | [.github/pr-agent/claude-settings-refactor.json](.github/pr-agent/claude-settings-refactor.json) |
+| Its permissions | [.github/pr-agent/testability-refactorer.settings.json](.github/pr-agent/testability-refactorer.settings.json) |
 
 It also reuses `unit-test-quality`, the two test-convention skills and `test-verification`, so its tests follow the same rules as the test agent's.
 
@@ -31,7 +31,7 @@ It also reuses `unit-test-quality`, the two test-convention skills and `test-ver
 
 ## Pre-push hook
 
-[.husky/pre-push](.husky/pre-push) runs before every `git push` and checks only what you're about to push. It compares against the remote branch, or against `origin/main` for a branch that has never been pushed. For backend changes, it runs the typecheck and the tests related to the changed files. For frontend changes, it does the same and also runs Prettier on the changed files. If your shell's Node.js is older than 22, it stops with a clear message instead of failing in a confusing way.
+[.husky/pre-push](.husky/pre-push) runs before every `git push` and checks only what you're about to push. It compares against the remote branch, or against `origin/main` for a branch that has never been pushed. For backend changes, it runs the typecheck and the tests related to the changed files. For frontend changes, it does the same and also runs Prettier on the changed files. Changes to the agent tooling in `scripts/pr-agent` get that package's typecheck and tests. If your shell's Node.js is older than 22.18, it stops with a clear message instead of failing in a confusing way.
 
 To enable it, run `npm install` once at the repository root. The root `package.json` exists only for this hook.
 

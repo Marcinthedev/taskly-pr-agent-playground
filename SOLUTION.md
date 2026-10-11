@@ -57,8 +57,8 @@ The agent runs when an allowed user opens or updates a non-draft PR, from a bran
 | `unit-test-quality` skill | same | Defines what a good unit test is |
 | `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions: what to fake and how |
 | `test-verification` skill | same | The run-fix-repeat loop, formatting, typecheck, and when a passing test actually counts |
-| Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Runs everything and enforces the trust boundaries |
-| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, formatter, report and usage, with 53 tests of its own |
+| Workflow | [.github/workflows/pr-agents.yml](.github/workflows/pr-agents.yml) | Runs everything and enforces the trust boundaries |
+| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, formatter, report and usage. A separate TypeScript package with 52 tests, run directly by Node and not part of any app build |
 
 A run goes like this:
 1. The planner maps each changed source file to its test file. It ignores files with nothing to test, such as types, constants, styles and entry points.

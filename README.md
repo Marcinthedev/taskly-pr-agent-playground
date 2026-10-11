@@ -62,15 +62,18 @@ npm run test:coverage    # report in frontend/coverage/index.html
 
 [SOLUTION.md](SOLUTION.md) describes the agent, its skills, the workflow and how to turn it on. To try it end to end on a throwaway repository, follow [docs/pr-agent-demo](docs/pr-agent-demo/README.md).
 
-The tooling behind the workflow has its own tests:
+The tooling behind the workflow lives in `scripts/pr-agent`, a small TypeScript package of its own that isn't part of either app's build. Node 22.18 or newer runs it directly. It has its own typecheck and tests:
 
 ```sh
-node --test "scripts/pr-agent/**/*.test.mjs"
+cd scripts/pr-agent
+npm ci
+npm run typecheck
+npm test
 ```
 
 You can also run tests exactly the way the agent does, with credentials removed from the environment:
 
 ```sh
-node scripts/pr-agent/cli.mjs test backend backend/tests/router.test.ts
-node scripts/pr-agent/cli.mjs typecheck frontend
+node scripts/pr-agent/pr-agent.ts test backend backend/tests/router.test.ts
+node scripts/pr-agent/pr-agent.ts typecheck frontend
 ```

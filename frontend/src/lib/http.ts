@@ -12,8 +12,6 @@ export async function request<T>(
           ]),
         )
 
-  // JSON is the default body format. FormData needs the browser-generated
-  // multipart boundary, and an explicit caller choice always wins.
   const hasJsonBody =
     init.body !== undefined &&
     init.body !== null &&

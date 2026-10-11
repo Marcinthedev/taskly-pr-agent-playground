@@ -27,7 +27,7 @@ Every test you write or edit meets all nine rules. Read each test against the ch
    - Use typed fakes, such as `vi.fn<Logger['error']>()` or a fake built with `satisfies`.
    - When a fake can't match a large framework type, cast once, inside the setup helper (`as unknown as Database`), never in an assertion.
    - `@ts-ignore`, `@ts-expect-error` and `as any` never silence a type error.
-   - Frontend tests are formatted with `node scripts/pr-agent/cli.mjs format frontend <files>`. Backend tests follow the style of the neighbouring test file.
+   - Frontend tests are formatted with `node scripts/pr-agent/pr-agent.ts format frontend <files>`. Backend tests follow the style of the neighbouring test file.
 
 ## Updating an existing test
 

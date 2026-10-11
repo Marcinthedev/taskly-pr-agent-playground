@@ -1,7 +1,7 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
-import { parseNameStatus, parsePorcelain, patchChanges } from "./git.mjs";
+import { filesInPatch, parseNameStatus, parsePorcelainStatus } from "./git-output.ts";
 
 test("parseNameStatus reads NUL-delimited diff output including renames", () => {
   const output = [
@@ -20,7 +20,7 @@ test("parseNameStatus reads NUL-delimited diff output including renames", () => 
   ]);
 });
 
-test("parsePorcelain maps working-tree states to A/M/D/R", () => {
+test("parsePorcelainStatus maps working-tree states to A/M/D/R", () => {
   const output = [
     " M backend/tests/router.test.ts",
     "?? backend/tests/lifespan.test.ts",
@@ -30,7 +30,7 @@ test("parsePorcelain maps working-tree states to A/M/D/R", () => {
     "",
   ].join("\0");
 
-  assert.deepEqual(parsePorcelain(output), [
+  assert.deepEqual(parsePorcelainStatus(output), [
     { status: "M", path: "backend/tests/router.test.ts" },
     { status: "A", path: "backend/tests/lifespan.test.ts" },
     { status: "A", path: "frontend/src/lib/x.test.ts" },
@@ -39,7 +39,7 @@ test("parsePorcelain maps working-tree states to A/M/D/R", () => {
   ]);
 });
 
-test("patchChanges lists every file a patch touches with its kind of change", () => {
+test("filesInPatch lists every file a patch touches with its kind of change", () => {
   const patch = [
     "diff --git a/backend/tests/router.test.ts b/backend/tests/router.test.ts",
     "index 1111111..2222222 100644",
@@ -66,7 +66,7 @@ test("patchChanges lists every file a patch touches with its kind of change", ()
     "",
   ].join("\n");
 
-  assert.deepEqual(patchChanges(patch), [
+  assert.deepEqual(filesInPatch(patch), [
     { status: "M", path: "backend/tests/router.test.ts" },
     { status: "A", path: "backend/tests/new.test.ts" },
     { status: "D", path: "backend/src/main.ts" },
@@ -78,5 +78,6 @@ test("patchChanges lists every file a patch touches with its kind of change", ()
 
 test("parsers return an empty list for empty output", () => {
   assert.deepEqual(parseNameStatus(""), []);
-  assert.deepEqual(parsePorcelain(""), []);
+  assert.deepEqual(parsePorcelainStatus(""), []);
+  assert.deepEqual(filesInPatch(""), []);
 });

@@ -19,7 +19,6 @@ function fakeDatabase(columns: object[]) {
   } as any;
 }
 
-/** The SQL text of a tagged-template call, with parameters shown as `?`. */
 function sqlOf(call: unknown[]) {
   return (call[0] as TemplateStringsArray).join('?').replace(/\s+/g, ' ');
 }

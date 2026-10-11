@@ -83,7 +83,11 @@ jobs:
 
   agent-tooling:
     name: PR agent tooling
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts/pr-agent
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,6 +98,14 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: scripts/pr-agent/package-lock.json
+
+      - name: Install tooling dependencies
+        run: npm ci
+
+      - name: Typecheck PR agent tooling
+        run: npm run typecheck
 
       - name: Run PR agent tooling tests
-        run: node --test "scripts/pr-agent/**/*.test.mjs"
+        run: npm test

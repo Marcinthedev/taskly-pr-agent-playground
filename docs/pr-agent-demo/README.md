@@ -49,7 +49,7 @@ The patch breaks two existing tests on purpose. The router test's fake repositor
 
 It usually takes 10 to 20 minutes.
 
-In the *Actions* tab, open the *PR Test Agent* run. The first job, *Plan, write and verify tests*, does the real work: it plans, installs dependencies in the sandbox, runs the agent, checks its changes and verifies them. The second job, *Commit verified tests and report*, publishes the result.
+In the *Actions* tab, open the *PR agents* run. The first job, *Plan, write and verify tests*, does the real work: it plans, installs dependencies in the sandbox, runs the agent, checks its changes and verifies them. The second job, *Commit verified tests and report*, publishes the result.
 
 When it's done:
 - **A comment on the PR** shows the outcome, the agent's decision and the skills it used, and the test files it wrote. It also has a table with typecheck, formatting, test results and coverage, plus the tokens and time the agent used.

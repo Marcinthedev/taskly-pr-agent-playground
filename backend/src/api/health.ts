@@ -5,14 +5,10 @@ import type { Logger } from "../core/logger.js";
 export function createHealthRouter(database: Database, logger: Logger) {
   const router = Router();
 
-  // Liveness: the process is up and serving. Never touches dependencies, so a
-  // database outage does not make the orchestrator restart healthy pods.
   router.get("/health/live", (req, res) => {
     res.json({ status: "ok" });
   });
 
-  // Readiness: the API can serve requests, i.e. the database answers.
-  // `/health` stays as an alias for existing probes (compose healthcheck).
   const ready = async (req: Request, res: Response) => {
     try {
       await database.todo.findFirst({ select: { id: true } });

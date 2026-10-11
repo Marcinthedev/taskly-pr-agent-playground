@@ -1,0 +1,680 @@
+diff --git a/backend/openapi.json b/backend/openapi.json
+index 4fdfb3b..2b3115b 100644
+--- a/backend/openapi.json
++++ b/backend/openapi.json
+@@ -116,6 +116,32 @@
+         }
+       }
+     },
++    "/api/todos/completed": {
++      "delete": {
++        "summary": "Delete every completed task",
++        "responses": {
++          "200": {
++            "description": "Number of deleted tasks",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "type": "object",
++                  "required": [
++                    "deleted"
++                  ],
++                  "properties": {
++                    "deleted": {
++                      "type": "integer",
++                      "minimum": 0
++                    }
++                  }
++                }
++              }
++            }
++          }
++        }
++      }
++    },
+     "/api/todos/{id}": {
+       "parameters": [
+         {
+diff --git a/backend/src/features/todos/repository.ts b/backend/src/features/todos/repository.ts
+index 9455966..9fb6288 100644
+--- a/backend/src/features/todos/repository.ts
++++ b/backend/src/features/todos/repository.ts
+@@ -1,51 +1,56 @@
+-import { fromModel } from './mappers.js';
+-import type { Database, TodoStore, TodoCreate, TodoUpdate, Todo } from './types.js';
+-
+-export class TodoRepository implements TodoStore {
+-  constructor(private readonly database: Pick<Database, 'todo'>) {}
+-
+-  async list(): Promise<Todo[]> {
+-    const rows = await this.database.todo.findMany({ orderBy: [{ created_at: 'desc' }, { id: 'desc' }] });
+-    return rows.map(fromModel);
+-  }
+-
+-  async get(id: number): Promise<Todo | null> {
+-    const record = await this.database.todo.findUnique({ where: { id } });
+-    return record ? fromModel(record) : null;
+-  }
+-
+-  async create(payload: TodoCreate): Promise<Todo> {
+-    const now = new Date();
+-    const record = await this.database.todo.create({
+-      data: {
+-        ...payload,
+-        due_date: payload.due_date ? new Date(`${payload.due_date}T00:00:00.000Z`) : null,
+-        created_at: now,
+-        updated_at: now,
+-      },
+-    });
+-    return fromModel(record);
+-  }
+-
+-  async update(id: number, payload: TodoUpdate): Promise<Todo | null> {
+-    const allowed = ['title', 'description', 'priority', 'due_date', 'completed'];
+-    const entries = Object.entries(payload);
+-    if (!entries.length || entries.some(([key]) => !allowed.includes(key))) {
+-      throw new Error('Invalid update fields.');
+-    }
+-    const rows = await this.database.todo.updateManyAndReturn({
+-      where: { id },
+-      data: {
+-        ...payload,
+-        due_date: payload.due_date ? new Date(`${payload.due_date}T00:00:00.000Z`) : payload.due_date,
+-        updated_at: new Date(),
+-      },
+-    });
+-    return rows.length ? fromModel(rows[0]) : null;
+-  }
+-
+-  async delete(id: number): Promise<boolean> {
+-    const { count } = await this.database.todo.deleteMany({ where: { id } });
+-    return count > 0;
+-  }
+-}
++import { fromModel } from './mappers.js';
++import type { Database, TodoStore, TodoCreate, TodoUpdate, Todo } from './types.js';
++
++export class TodoRepository implements TodoStore {
++  constructor(private readonly database: Pick<Database, 'todo'>) {}
++
++  async list(): Promise<Todo[]> {
++    const rows = await this.database.todo.findMany({ orderBy: [{ created_at: 'desc' }, { id: 'desc' }] });
++    return rows.map(fromModel);
++  }
++
++  async get(id: number): Promise<Todo | null> {
++    const record = await this.database.todo.findUnique({ where: { id } });
++    return record ? fromModel(record) : null;
++  }
++
++  async create(payload: TodoCreate): Promise<Todo> {
++    const now = new Date();
++    const record = await this.database.todo.create({
++      data: {
++        ...payload,
++        due_date: payload.due_date ? new Date(`${payload.due_date}T00:00:00.000Z`) : null,
++        created_at: now,
++        updated_at: now,
++      },
++    });
++    return fromModel(record);
++  }
++
++  async update(id: number, payload: TodoUpdate): Promise<Todo | null> {
++    const allowed = ['title', 'description', 'priority', 'due_date', 'completed'];
++    const entries = Object.entries(payload);
++    if (!entries.length || entries.some(([key]) => !allowed.includes(key))) {
++      throw new Error('Invalid update fields.');
++    }
++    const rows = await this.database.todo.updateManyAndReturn({
++      where: { id },
++      data: {
++        ...payload,
++        due_date: payload.due_date ? new Date(`${payload.due_date}T00:00:00.000Z`) : payload.due_date,
++        updated_at: new Date(),
++      },
++    });
++    return rows.length ? fromModel(rows[0]) : null;
++  }
++
++  async delete(id: number): Promise<boolean> {
++    const { count } = await this.database.todo.deleteMany({ where: { id } });
++    return count > 0;
++  }
++
++  async deleteCompleted(): Promise<number> {
++    const { count } = await this.database.todo.deleteMany({ where: { completed: true } });
++    return count;
++  }
++}
+diff --git a/backend/src/features/todos/router.ts b/backend/src/features/todos/router.ts
+index 5ba14ec..ef3201f 100644
+--- a/backend/src/features/todos/router.ts
++++ b/backend/src/features/todos/router.ts
+@@ -1,36 +1,40 @@
+-import { Router } from 'express';
+-import type { TodoStore } from './types.js';
+-import { createSchema, updateSchema, idSchema } from './validators.js';
+-
+-export function createTodosRouter(repository: TodoStore) {
+-  const router = Router();
+-  router.param('id', (req, res, next, id) => {
+-    const result = idSchema.safeParse(id);
+-    if (!result.success) return res.status(422).json({ detail: result.error.issues });
+-    res.locals.todoId = result.data;
+-    next();
+-  });
+-  router.get('/', async (req, res) => res.json(await repository.list()));
+-  router.post('/', async (req, res) => {
+-    const result = createSchema.safeParse(req.body);
+-    if (!result.success) return res.status(422).json({ detail: result.error.issues });
+-    res.status(201).json(await repository.create(result.data));
+-  });
+-  router.get('/:id', async (req, res) => {
+-    const todo = await repository.get(Number(res.locals.todoId));
+-    if (!todo) return res.status(404).json({ detail: 'Task not found.' });
+-    res.json(todo);
+-  });
+-  router.patch('/:id', async (req, res) => {
+-    const result = updateSchema.safeParse(req.body);
+-    if (!result.success) return res.status(422).json({ detail: result.error.issues });
+-    const todo = await repository.update(Number(res.locals.todoId), result.data);
+-    if (!todo) return res.status(404).json({ detail: 'Task not found.' });
+-    res.json(todo);
+-  });
+-  router.delete('/:id', async (req, res) => {
+-    if (!await repository.delete(Number(res.locals.todoId))) return res.status(404).json({ detail: 'Task not found.' });
+-    res.status(204).end();
+-  });
+-  return router;
+-}
++import { Router } from 'express';
++import type { TodoStore } from './types.js';
++import { createSchema, updateSchema, idSchema } from './validators.js';
++
++export function createTodosRouter(repository: TodoStore) {
++  const router = Router();
++  router.param('id', (req, res, next, id) => {
++    const result = idSchema.safeParse(id);
++    if (!result.success) return res.status(422).json({ detail: result.error.issues });
++    res.locals.todoId = result.data;
++    next();
++  });
++  router.get('/', async (req, res) => res.json(await repository.list()));
++  router.post('/', async (req, res) => {
++    const result = createSchema.safeParse(req.body);
++    if (!result.success) return res.status(422).json({ detail: result.error.issues });
++    res.status(201).json(await repository.create(result.data));
++  });
++  // Registered before '/:id' so "completed" is never parsed as a task id.
++  router.delete('/completed', async (req, res) => {
++    res.json({ deleted: await repository.deleteCompleted() });
++  });
++  router.get('/:id', async (req, res) => {
++    const todo = await repository.get(Number(res.locals.todoId));
++    if (!todo) return res.status(404).json({ detail: 'Task not found.' });
++    res.json(todo);
++  });
++  router.patch('/:id', async (req, res) => {
++    const result = updateSchema.safeParse(req.body);
++    if (!result.success) return res.status(422).json({ detail: result.error.issues });
++    const todo = await repository.update(Number(res.locals.todoId), result.data);
++    if (!todo) return res.status(404).json({ detail: 'Task not found.' });
++    res.json(todo);
++  });
++  router.delete('/:id', async (req, res) => {
++    if (!await repository.delete(Number(res.locals.todoId))) return res.status(404).json({ detail: 'Task not found.' });
++    res.status(204).end();
++  });
++  return router;
++}
+diff --git a/backend/src/features/todos/types.ts b/backend/src/features/todos/types.ts
+index 16ae5ee..c5d134e 100644
+--- a/backend/src/features/todos/types.ts
++++ b/backend/src/features/todos/types.ts
+@@ -1,16 +1,17 @@
+-import type { z } from 'zod';
+-import type { createSchema, updateSchema, todoSchema } from './validators.js';
+-import type { PrismaClient, Todo as PrismaTodo } from '../../generated/prisma/client.js';
+-
+-export type TodoCreate = z.infer<typeof createSchema>;
+-export type TodoUpdate = z.infer<typeof updateSchema>;
+-export type Todo = z.infer<typeof todoSchema>;
+-export type TodoRecord = PrismaTodo;
+-export type Database = PrismaClient;
+-export interface TodoStore {
+-  list(): Promise<Todo[]>;
+-  get(id: number): Promise<Todo | null>;
+-  create(payload: TodoCreate): Promise<Todo>;
+-  update(id: number, payload: TodoUpdate): Promise<Todo | null>;
+-  delete(id: number): Promise<boolean>;
+-}
++import type { z } from 'zod';
++import type { createSchema, updateSchema, todoSchema } from './validators.js';
++import type { PrismaClient, Todo as PrismaTodo } from '../../generated/prisma/client.js';
++
++export type TodoCreate = z.infer<typeof createSchema>;
++export type TodoUpdate = z.infer<typeof updateSchema>;
++export type Todo = z.infer<typeof todoSchema>;
++export type TodoRecord = PrismaTodo;
++export type Database = PrismaClient;
++export interface TodoStore {
++  list(): Promise<Todo[]>;
++  get(id: number): Promise<Todo | null>;
++  create(payload: TodoCreate): Promise<Todo>;
++  update(id: number, payload: TodoUpdate): Promise<Todo | null>;
++  delete(id: number): Promise<boolean>;
++  deleteCompleted(): Promise<number>;
++}
+diff --git a/frontend/src/features/todos/TodosPage.tsx b/frontend/src/features/todos/TodosPage.tsx
+index 70229bf..cf1ea7c 100644
+--- a/frontend/src/features/todos/TodosPage.tsx
++++ b/frontend/src/features/todos/TodosPage.tsx
+@@ -1,112 +1,132 @@
+-import { useState } from 'react'
+-import { Alert, Button } from '../../design-system'
+-import { SuccessNotice } from '../../components/SuccessNotice'
+-import { useNotice } from '../../hooks/useNotice'
+-import { DeleteTodoDialog } from './components/DeleteTodoDialog'
+-import { TodoEditor } from './components/TodoEditor'
+-import { TodoFilters } from './components/TodoFilters'
+-import { TodoList } from './components/TodoList'
+-import { TodosHeader } from './components/TodosHeader'
+-import { useTodoFilters } from './hooks/useTodoFilters'
+-import { useTodosBusy } from './hooks/useTodosBusy'
+-import { useTodosQuery } from './hooks/useTodosQuery'
+-import { useUpdateTodoMutation } from './hooks/useUpdateTodoMutation'
+-import type { Todo } from './types'
+-
+-export function TodosPage() {
+-  const todosQuery = useTodosQuery()
+-  const todos = todosQuery.data ?? []
+-  const filters = useTodoFilters(todos)
+-  const toggleTodo = useUpdateTodoMutation()
+-  const busy = useTodosBusy()
+-  const { message, notify } = useNotice()
+-  const [editor, setEditor] = useState<Todo | 'new' | null>(null)
+-  const [deleting, setDeleting] = useState<Todo | null>(null)
+-  const error = toggleTodo.error ?? todosQuery.error
+-
+-  async function toggle(todo: Todo) {
+-    if (busy) return
+-    try {
+-      const saved = await toggleTodo.mutateAsync({
+-        id: todo.id,
+-        input: { completed: !todo.completed },
+-      })
+-      notify(
+-        saved.completed
+-          ? 'Another task complete. Well done!'
+-          : 'Task marked as active.',
+-      )
+-    } catch {
+-      // Display the mutation error in the page alert.
+-    }
+-  }
+-  async function retry() {
+-    toggleTodo.reset()
+-    await todosQuery.refetch()
+-  }
+-
+-  return (
+-    <>
+-      <main id="main" className="page-layout">
+-        <TodosHeader
+-          disabled={todosQuery.isPending || busy}
+-          onCreate={() => setEditor('new')}
+-        />
+-        <TodoFilters
+-          filter={filters.filter}
+-          search={filters.search}
+-          sort={filters.sort}
+-          onFilterChange={filters.setFilter}
+-          onSearchChange={filters.setSearch}
+-          onSortChange={filters.setSort}
+-        />
+-        {error && (
+-          <Alert variant="warning">
+-            {error.message}
+-            <Button
+-              variant="secondary"
+-              disabled={todosQuery.isFetching || busy}
+-              onClick={() => void retry()}
+-            >
+-              Try again
+-            </Button>
+-          </Alert>
+-        )}
+-        <TodoList
+-          todos={filters.visible}
+-          hasTodos={todos.length > 0}
+-          loading={todosQuery.isPending}
+-          failed={todosQuery.isError}
+-          busy={busy}
+-          onCreate={() => setEditor('new')}
+-          onToggle={(todo) => void toggle(todo)}
+-          onEdit={setEditor}
+-          onDelete={setDeleting}
+-        />
+-      </main>
+-      <SuccessNotice message={message} />
+-      {editor && (
+-        <TodoEditor
+-          todo={editor}
+-          busy={busy}
+-          onClose={() => setEditor(null)}
+-          onSaved={(notice) => {
+-            setEditor(null)
+-            notify(notice)
+-          }}
+-        />
+-      )}
+-      {deleting && (
+-        <DeleteTodoDialog
+-          todo={deleting}
+-          busy={busy}
+-          onClose={() => setDeleting(null)}
+-          onDeleted={() => {
+-            setDeleting(null)
+-            notify('Task deleted.')
+-          }}
+-        />
+-      )}
+-    </>
+-  )
+-}
++import { useState } from 'react'
++import { Alert, Button } from '../../design-system'
++import { SuccessNotice } from '../../components/SuccessNotice'
++import { useNotice } from '../../hooks/useNotice'
++import { DeleteTodoDialog } from './components/DeleteTodoDialog'
++import { TodoEditor } from './components/TodoEditor'
++import { TodoFilters } from './components/TodoFilters'
++import { TodoList } from './components/TodoList'
++import { TodosHeader } from './components/TodosHeader'
++import { useTodoFilters } from './hooks/useTodoFilters'
++import { useTodosBusy } from './hooks/useTodosBusy'
++import { useTodosQuery } from './hooks/useTodosQuery'
++import { useClearCompletedMutation } from './hooks/useClearCompletedMutation'
++import { useUpdateTodoMutation } from './hooks/useUpdateTodoMutation'
++import type { Todo } from './types'
++
++export function TodosPage() {
++  const todosQuery = useTodosQuery()
++  const todos = todosQuery.data ?? []
++  const filters = useTodoFilters(todos)
++  const toggleTodo = useUpdateTodoMutation()
++  const busy = useTodosBusy()
++  const { message, notify } = useNotice()
++  const [editor, setEditor] = useState<Todo | 'new' | null>(null)
++  const [deleting, setDeleting] = useState<Todo | null>(null)
++  const clearCompleted = useClearCompletedMutation()
++  const completedCount = todos.filter((todo) => todo.completed).length
++  const error = toggleTodo.error ?? clearCompleted.error ?? todosQuery.error
++
++  async function clear() {
++    if (busy || completedCount === 0) return
++    try {
++      const { deleted } = await clearCompleted.mutateAsync()
++      notify(
++        deleted === 1
++          ? 'Cleared 1 completed task.'
++          : `Cleared ${deleted} completed tasks.`,
++      )
++    } catch {
++      // Display the mutation error in the page alert.
++    }
++  }
++
++  async function toggle(todo: Todo) {
++    if (busy) return
++    try {
++      const saved = await toggleTodo.mutateAsync({
++        id: todo.id,
++        input: { completed: !todo.completed },
++      })
++      notify(
++        saved.completed
++          ? 'Another task complete. Well done!'
++          : 'Task marked as active.',
++      )
++    } catch {
++      // Display the mutation error in the page alert.
++    }
++  }
++  async function retry() {
++    toggleTodo.reset()
++    clearCompleted.reset()
++    await todosQuery.refetch()
++  }
++
++  return (
++    <>
++      <main id="main" className="page-layout">
++        <TodosHeader
++          disabled={todosQuery.isPending || busy}
++          onCreate={() => setEditor('new')}
++          completedCount={completedCount}
++          onClearCompleted={() => void clear()}
++        />
++        <TodoFilters
++          filter={filters.filter}
++          search={filters.search}
++          sort={filters.sort}
++          onFilterChange={filters.setFilter}
++          onSearchChange={filters.setSearch}
++          onSortChange={filters.setSort}
++        />
++        {error && (
++          <Alert variant="warning">
++            {error.message}
++            <Button
++              variant="secondary"
++              disabled={todosQuery.isFetching || busy}
++              onClick={() => void retry()}
++            >
++              Try again
++            </Button>
++          </Alert>
++        )}
++        <TodoList
++          todos={filters.visible}
++          hasTodos={todos.length > 0}
++          loading={todosQuery.isPending}
++          failed={todosQuery.isError}
++          busy={busy}
++          onCreate={() => setEditor('new')}
++          onToggle={(todo) => void toggle(todo)}
++          onEdit={setEditor}
++          onDelete={setDeleting}
++        />
++      </main>
++      <SuccessNotice message={message} />
++      {editor && (
++        <TodoEditor
++          todo={editor}
++          busy={busy}
++          onClose={() => setEditor(null)}
++          onSaved={(notice) => {
++            setEditor(null)
++            notify(notice)
++          }}
++        />
++      )}
++      {deleting && (
++        <DeleteTodoDialog
++          todo={deleting}
++          busy={busy}
++          onClose={() => setDeleting(null)}
++          onDeleted={() => {
++            setDeleting(null)
++            notify('Task deleted.')
++          }}
++        />
++      )}
++    </>
++  )
++}
+diff --git a/frontend/src/features/todos/api/queryKeys.ts b/frontend/src/features/todos/api/queryKeys.ts
+index cf52ed2..393d161 100644
+--- a/frontend/src/features/todos/api/queryKeys.ts
++++ b/frontend/src/features/todos/api/queryKeys.ts
+@@ -1,7 +1,8 @@
+-export const todoKeys = {
+-  all: ['todos'] as const,
+-  list: ['todos', 'list'] as const,
+-  create: ['todos', 'create'] as const,
+-  update: ['todos', 'update'] as const,
+-  delete: ['todos', 'delete'] as const,
+-}
++export const todoKeys = {
++  all: ['todos'] as const,
++  list: ['todos', 'list'] as const,
++  create: ['todos', 'create'] as const,
++  update: ['todos', 'update'] as const,
++  delete: ['todos', 'delete'] as const,
++  clearCompleted: ['todos', 'clear-completed'] as const,
++}
+diff --git a/frontend/src/features/todos/api/todos.ts b/frontend/src/features/todos/api/todos.ts
+index 5f08591..c1403e4 100644
+--- a/frontend/src/features/todos/api/todos.ts
++++ b/frontend/src/features/todos/api/todos.ts
+@@ -1,34 +1,36 @@
+-import { request } from '../../../lib/http'
+-import type { Todo, TodoInput } from '../types'
+-
+-export const todosApi = {
+-  list: (signal?: AbortSignal) => request<Todo[]>('/todos', { signal }),
+-  create: (input: TodoInput) => {
+-    // A form initialized with a Todo must never send read-only fields.
+-    const { title, description, priority, due_date, completed } = input
+-    return request<Todo>('/todos', {
+-      method: 'POST',
+-      body: JSON.stringify({
+-        title,
+-        description,
+-        priority,
+-        due_date,
+-        completed,
+-      }),
+-    })
+-  },
+-  update: (id: number, input: Partial<TodoInput>) => {
+-    const { title, description, priority, due_date, completed } = input
+-    return request<Todo>(`/todos/${id}`, {
+-      method: 'PATCH',
+-      body: JSON.stringify({
+-        title,
+-        description,
+-        priority,
+-        due_date,
+-        completed,
+-      }),
+-    })
+-  },
+-  remove: (id: number) => request<void>(`/todos/${id}`, { method: 'DELETE' }),
+-}
++import { request } from '../../../lib/http'
++import type { Todo, TodoInput } from '../types'
++
++export const todosApi = {
++  list: (signal?: AbortSignal) => request<Todo[]>('/todos', { signal }),
++  create: (input: TodoInput) => {
++    // A form initialized with a Todo must never send read-only fields.
++    const { title, description, priority, due_date, completed } = input
++    return request<Todo>('/todos', {
++      method: 'POST',
++      body: JSON.stringify({
++        title,
++        description,
++        priority,
++        due_date,
++        completed,
++      }),
++    })
++  },
++  update: (id: number, input: Partial<TodoInput>) => {
++    const { title, description, priority, due_date, completed } = input
++    return request<Todo>(`/todos/${id}`, {
++      method: 'PATCH',
++      body: JSON.stringify({
++        title,
++        description,
++        priority,
++        due_date,
++        completed,
++      }),
++    })
++  },
++  remove: (id: number) => request<void>(`/todos/${id}`, { method: 'DELETE' }),
++  clearCompleted: () =>
++    request<{ deleted: number }>('/todos/completed', { method: 'DELETE' }),
++}
+diff --git a/frontend/src/features/todos/components/TodosHeader.tsx b/frontend/src/features/todos/components/TodosHeader.tsx
+index 43a49e2..f481ab5 100644
+--- a/frontend/src/features/todos/components/TodosHeader.tsx
++++ b/frontend/src/features/todos/components/TodosHeader.tsx
+@@ -4,9 +4,13 @@ import { Button, Heading, Text } from '../../../design-system'
+ export function TodosHeader({
+   disabled,
+   onCreate,
++  completedCount = 0,
++  onClearCompleted,
+ }: {
+   disabled: boolean
+   onCreate: () => void
++  completedCount?: number
++  onClearCompleted?: () => void
+ }) {
+   return (
+     <section className="row spread" aria-labelledby="page-title">
+@@ -14,10 +18,21 @@ export function TodosHeader({
+         <Heading id="page-title">Tasks</Heading>
+         <Text muted>Create, organize, and complete tasks.</Text>
+       </div>
+-      <Button disabled={disabled} onClick={onCreate}>
+-        <Plus size={18} aria-hidden="true" />
+-        New task
+-      </Button>
++      <div className="row compact">
++        {onClearCompleted && (
++          <Button
++            variant="secondary"
++            disabled={disabled || completedCount === 0}
++            onClick={onClearCompleted}
++          >
++            Clear completed ({completedCount})
++          </Button>
++        )}
++        <Button disabled={disabled} onClick={onCreate}>
++          <Plus size={18} aria-hidden="true" />
++          New task
++        </Button>
++      </div>
+     </section>
+   )
+ }
+diff --git a/frontend/src/features/todos/hooks/useClearCompletedMutation.ts b/frontend/src/features/todos/hooks/useClearCompletedMutation.ts
+new file mode 100644
+index 0000000..78a01c3
+--- /dev/null
++++ b/frontend/src/features/todos/hooks/useClearCompletedMutation.ts
+@@ -0,0 +1,18 @@
++import { useMutation, useQueryClient } from '@tanstack/react-query'
++import { todoKeys } from '../api/queryKeys'
++import { todosApi } from '../api/todos'
++import type { Todo } from '../types'
++
++export function useClearCompletedMutation() {
++  const queryClient = useQueryClient()
++  return useMutation({
++    mutationKey: todoKeys.clearCompleted,
++    mutationFn: () => todosApi.clearCompleted(),
++    onSuccess: async () => {
++      await queryClient.cancelQueries({ queryKey: todoKeys.list })
++      queryClient.setQueryData<Todo[]>(todoKeys.list, (current) =>
++        current?.filter((todo) => !todo.completed),
++      )
++    },
++  })
++}

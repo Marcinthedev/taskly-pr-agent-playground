@@ -1,0 +1,55 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Skill",
+      "Task",
+      "Agent",
+      "TodoWrite",
+      "Bash(node scripts/pr-agent/cli.mjs test:*)",
+      "Bash(node scripts/pr-agent/cli.mjs typecheck:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git restore --:*)",
+      "Bash(git clean -f --:*)"
+    ],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.github/**)",
+      "Edit(./.claude/**)",
+      "Edit(./scripts/**)",
+      "Edit(./backend/src/**)",
+      "Edit(./frontend/src/main.tsx)",
+      "Edit(./frontend/src/test/setup.ts)",
+      "Edit(./**/package.json)",
+      "Edit(./**/package-lock.json)",
+      "Edit(./**/node_modules/**)",
+      "Edit(./**/vitest.config.ts)",
+      "Edit(./frontend/vite.config.ts)",
+      "Write(./.github/**)",
+      "Write(./.claude/**)",
+      "Write(./scripts/**)",
+      "Write(./backend/src/**)",
+      "Write(./frontend/src/main.tsx)",
+      "Write(./frontend/src/test/setup.ts)",
+      "Write(./**/package.json)",
+      "Write(./**/package-lock.json)",
+      "Write(./**/node_modules/**)",
+      "Write(./**/vitest.config.ts)",
+      "Write(./frontend/vite.config.ts)"
+    ]
+  },
+  "env": {
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1"
+  }
+}

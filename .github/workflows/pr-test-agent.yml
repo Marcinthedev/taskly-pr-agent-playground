@@ -1,0 +1,395 @@
+name: PR Test Agent
+
+# For every same-repository pull request that changes application source, a
+# Claude Code agent writes or updates unit tests for the changed code. The
+# workflow, not the agent, decides what is kept: it checks that only test files
+# changed, re-runs typecheck and the full suites with coverage, commits the
+# verified tests to the PR branch and posts one summary comment.
+#
+# Trust boundaries
+#   generate  read-only token. PR code (npm install scripts, tests) runs only as
+#             the unprivileged `prsandbox` user with an empty environment and
+#             no network, so it cannot read the model key from the agent's
+#             environment or /proc, and cannot exfiltrate anything.
+#   publish   write token. Never executes PR code: it re-checks the patch with
+#             tooling from the base branch, applies it with git and pushes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "backend/src/**"
+      - "frontend/src/**"
+
+permissions: {}
+
+concurrency:
+  group: pr-test-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  fork-notice:
+    name: Skip fork pull request
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: |
+          echo "::notice::PR Test Agent runs only for branches of this repository; fork PRs receive no secrets."
+          echo "PR Test Agent skipped: fork pull requests receive no secrets on \`pull_request\`." >> "$GITHUB_STEP_SUMMARY"
+
+  generate:
+    name: Plan, write and verify tests
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'github-actions[bot]' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      PR_AGENT_SANDBOX_USER: prsandbox
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out agent tooling from the base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-base
+          persist-credentials: false
+          sparse-checkout: |
+            .claude
+            .github/pr-agent
+            scripts/pr-agent
+
+      - name: Move trusted tooling out of the workspace
+        run: |
+          set -euo pipefail
+          TRUSTED="$RUNNER_TEMP/trusted"
+          RESULTS="$RUNNER_TEMP/pr-agent"
+          mkdir -p "$RESULTS"
+          mv .trusted-base "$TRUSTED"
+          if [ ! -f "$TRUSTED/scripts/pr-agent/cli.mjs" ]; then
+            echo "::error::The base branch has no PR agent. Merge the agent into the base branch first; the PR's own copy is never trusted."
+            exit 1
+          fi
+          echo "TRUSTED=$TRUSTED" >> "$GITHUB_ENV"
+          echo "RESULTS=$RESULTS" >> "$GITHUB_ENV"
+          echo "CLI=$TRUSTED/scripts/pr-agent/cli.mjs" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Plan which tests the change needs
+        id: plan
+        run: node "$CLI" plan --dir "$RESULTS" --base "$BASE_SHA" --head "$HEAD_SHA"
+
+      - name: Pin agent configuration to the base branch
+        if: steps.plan.outputs.needs_tests == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf .claude scripts/pr-agent .github/pr-agent
+          mkdir -p scripts .github
+          cp -R "$TRUSTED/.claude" .
+          cp -R "$TRUSTED/scripts/pr-agent" scripts/
+          cp -R "$TRUSTED/.github/pr-agent" .github/
+          git add -A .claude scripts/pr-agent .github/pr-agent
+          if ! git diff --cached --quiet; then
+            echo "::notice::This PR changes the agent configuration; the run uses the base-branch version."
+            git -c user.name=pr-agent -c user.email=pr-agent@localhost commit -q -m "ci: pin agent configuration"
+          fi
+          mkdir -p .pr-agent
+          cp "$RESULTS/plan.json" "$RESULTS/pr.diff" .pr-agent/
+
+      - name: Create the sandbox user
+        if: steps.plan.outputs.needs_tests == 'true'
+        run: |
+          set -euo pipefail
+          sudo useradd --create-home --shell /usr/sbin/nologin "$PR_AGENT_SANDBOX_USER"
+          # The workspace lives under the runner's home, which other users cannot
+          # enter. Grant pass-through only (o+x, no listing) on its ancestors...
+          dir="$GITHUB_WORKSPACE"
+          while [ "$dir" != "/" ]; do sudo chmod o+x "$dir"; dir="$(dirname "$dir")"; done
+          # ...and keep everything else in the runner's home private.
+          # Top level is enough: a closed directory hides everything below it.
+          # Symlinks are skipped so system folders they point to stay untouched.
+          sudo find "$HOME" -mindepth 1 -maxdepth 1 ! -name work ! -type l -exec chmod go-rwx {} +
+          # The sandbox may write only the two packages; .git and $RUNNER_TEMP stay private.
+          chmod -R a+rwX backend frontend
+          chmod -R go-rwx .git "$RUNNER_TEMP"
+
+      - name: Install dependencies as the sandbox user
+        if: steps.plan.outputs.needs_tests == 'true'
+        run: |
+          set -euo pipefail
+          for area in backend frontend; do
+            if [ "$(jq -r --arg a "$area" '.areas | index($a) != null' "$RESULTS/plan.json")" = "true" ]; then
+              (cd "$area" && sudo -u "$PR_AGENT_SANDBOX_USER" -H env "PATH=$PATH" npm ci --no-audit --no-fund)
+            fi
+          done
+
+      - name: Cut the sandbox user off the network
+        if: steps.plan.outputs.needs_tests == 'true'
+        run: |
+          set -euo pipefail
+          sudo pkill -KILL -u "$PR_AGENT_SANDBOX_USER" || true
+          for ipt in iptables ip6tables; do
+            sudo "$ipt" -A OUTPUT -o lo -m owner --uid-owner "$PR_AGENT_SANDBOX_USER" -j ACCEPT
+            sudo "$ipt" -A OUTPUT -m owner --uid-owner "$PR_AGENT_SANDBOX_USER" -j REJECT
+          done
+          if sudo -u "$PR_AGENT_SANDBOX_USER" -H env "PATH=$PATH" node -e "fetch('https://api.github.com',{signal:AbortSignal.timeout(5000)}).then(()=>process.exit(1),()=>process.exit(0))"; then
+            echo "Sandbox network is blocked."
+          else
+            echo "::error::The sandbox user can still reach the network." && exit 1
+          fi
+
+      - name: Measure baseline coverage
+        if: steps.plan.outputs.needs_tests == 'true'
+        continue-on-error: true
+        run: |
+          if [ "${{ steps.plan.outputs.backend }}" = "true" ]; then node "$CLI" verify backend --dir "$RESULTS" --baseline || true; fi
+          if [ "${{ steps.plan.outputs.frontend }}" = "true" ]; then node "$CLI" verify frontend --dir "$RESULTS" --baseline || true; fi
+          touch "$RUNNER_TEMP/dependencies-marker"
+
+      - name: Run the test-engineer agent
+        id: agent
+        if: steps.plan.outputs.needs_tests == 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
+        with:
+          # Set one of the two secrets: an Anthropic Console API key, or a Claude
+          # subscription token from `claude setup-token`.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          settings: ${{ runner.temp }}/trusted/.github/pr-agent/claude-settings.json
+          claude_args: >-
+            --model ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
+            --max-turns 80
+            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/cli.mjs test:*),Bash(node scripts/pr-agent/cli.mjs typecheck:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
+            --disallowedTools "WebFetch,WebSearch"
+          prompt: |
+            Pull request #${{ github.event.pull_request.number }} changed application source.
+            The change plan is in .pr-agent/plan.json and the diff is in .pr-agent/pr.diff.
+
+            Delegate the work to the `test-engineer` subagent (defined in
+            .claude/agents/test-engineer.md) with this instruction: "Write or update unit
+            tests for the targets in .pr-agent/plan.json, verify them, and return your JSON
+            report." Let it finish its own steps; leave all file edits to it.
+
+            When the subagent returns, end your final message with its fenced `json`
+            report block, unchanged. That block is the only output the workflow reads.
+
+      - name: Record the agent's decision
+        if: steps.plan.outputs.needs_tests == 'true'
+        env:
+          EXECUTION_FILE: ${{ steps.agent.outputs.execution_file }}
+        run: node "$CLI" decision --dir "$RESULTS" --execution-file "${EXECUTION_FILE:-none}"
+
+      - name: Guard - only test files may change
+        id: guard
+        if: steps.plan.outputs.needs_tests == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Installed dependencies must be exactly what npm ci produced (tool caches excepted).
+          [ -f "$RUNNER_TEMP/dependencies-marker" ] || { echo "::error::dependency marker missing"; exit 1; }
+          changed_deps="$(find backend/node_modules frontend/node_modules \
+            \( -path '*/.vite' -o -path '*/.vitest' -o -path '*/.cache' \) -prune -o \
+            -type f -newer "$RUNNER_TEMP/dependencies-marker" -print 2>/dev/null | head -n 20)"
+          if [ -n "$changed_deps" ]; then
+            echo "::error::Files under node_modules changed during the agent run:"; echo "$changed_deps"
+            jq -n --arg files "$changed_deps" '{ok:false, allowed:[], violations:[{path:"node_modules", reason:("dependencies were modified: " + ($files|split("\n")|join(", ")))}]}' > "$RESULTS/guard.json"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          node "$CLI" guard --dir "$RESULTS"
+
+      - name: Package the guarded tests as a patch
+        id: package
+        if: steps.guard.outcome == 'success' && steps.guard.outputs.changed == 'true'
+        run: node "$CLI" patch --dir "$RESULTS"
+
+      - name: Verify - typecheck and full suites with coverage
+        id: verify
+        if: steps.package.outcome == 'success'
+        continue-on-error: true
+        run: |
+          status=0
+          if [ "${{ steps.plan.outputs.backend }}" = "true" ]; then node "$CLI" verify backend --dir "$RESULTS" || status=1; fi
+          if [ "${{ steps.plan.outputs.frontend }}" = "true" ]; then node "$CLI" verify frontend --dir "$RESULTS" || status=1; fi
+          exit $status
+
+      - name: Confirm verification left the tests untouched
+        id: integrity
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        run: |
+          # Test code runs during verification and could rewrite test files after
+          # the guard approved them. The patch cut before verification must still
+          # match the working tree, or nothing is committed.
+          node "$CLI" patch --dir "$RESULTS" --out "$RUNNER_TEMP/after-verify.patch"
+          cmp "$RESULTS/tests.patch" "$RUNNER_TEMP/after-verify.patch"
+
+      - name: Record the run status
+        if: always()
+        env:
+          PLAN: ${{ steps.plan.outcome }}
+          NEEDS_TESTS: ${{ steps.plan.outputs.needs_tests }}
+          AGENT: ${{ steps.agent.outcome }}
+          GUARD: ${{ steps.guard.outcome }}
+          CHANGED: ${{ steps.guard.outputs.changed }}
+          VERIFY: ${{ steps.verify.outcome }}
+          INTEGRITY: ${{ steps.integrity.outcome }}
+        run: |
+          mkdir -p "$RESULTS"
+          if [ "$PLAN" != "success" ]; then status=failed; reason="the change plan could not be computed"
+          elif [ "$NEEDS_TESTS" != "true" ]; then status=skipped; reason="no unit-testable application source changed"
+          elif [ "$GUARD" = "failure" ]; then status=rejected; reason="the agent changed files outside the test-only policy, so its work was discarded"
+          elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete"
+          elif [ "$CHANGED" != "true" ] && [ ! -f "$RESULTS/decision.json" ]; then status=failed; reason="the agent made no changes and returned no report; see the agent step log"
+          elif [ "$CHANGED" != "true" ]; then status=skipped; reason="the agent decided no test changes were needed"
+          elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the generated tests failed typecheck or the test suite"
+          elif [ "$INTEGRITY" != "success" ]; then status=rejected; reason="test files changed while the tests ran, so the verified result cannot be trusted"
+          else status=verified; reason=""
+          fi
+          jq -n --arg status "$status" --arg reason "$reason" '{status: $status, reason: $reason}' > "$RESULTS/status.json"
+          cat "$RESULTS/status.json"
+
+      - name: Upload agent results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-agent-results
+          path: ${{ runner.temp }}/pr-agent
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Commit verified tests and report
+    needs: generate
+    if: always() && (needs.generate.result == 'success' || needs.generate.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download agent results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pr-agent-results
+          path: ${{ runner.temp }}/pr-agent
+
+      - name: Check out report tooling from the base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+          sparse-checkout: scripts/pr-agent
+
+      - name: Read run status
+        id: status
+        run: |
+          RESULTS="$RUNNER_TEMP/pr-agent"
+          echo "RESULTS=$RESULTS" >> "$GITHUB_ENV"
+          echo "CLI=$GITHUB_WORKSPACE/trusted/scripts/pr-agent/cli.mjs" >> "$GITHUB_ENV"
+          echo "status=$(jq -r .status "$RESULTS/status.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the PR branch for committing
+        if: steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: pr
+          # Credentials are needed to push; nothing from this checkout is executed.
+          persist-credentials: true
+
+      - name: Commit verified tests to the PR branch
+        id: commit
+        if: steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
+        working-directory: pr
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "status=rejected" >> "$GITHUB_OUTPUT"
+            echo "reason=the branch moved while the agent was running; the next run will regenerate tests" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/tests.patch"
+          git apply --index "$RESULTS/tests.patch"
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "test: add unit tests for changed code [pr-test-agent]"
+          git push -q origin "HEAD:refs/heads/$HEAD_REF"
+          echo "status=committed" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Render report
+        id: render
+        env:
+          RUN_STATUS: ${{ steps.status.outputs.status }}
+          COMMIT_STATUS: ${{ steps.commit.outputs.status }}
+          COMMIT_REASON: ${{ steps.commit.outputs.reason }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          AUTO_COMMIT: ${{ vars.PR_AGENT_AUTO_COMMIT }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          status="$RUN_STATUS"; reason="$(jq -r '.reason // ""' "$RESULTS/status.json")"; sha=""
+          if [ "$RUN_STATUS" = "verified" ]; then
+            if [ "$AUTO_COMMIT" = "false" ]; then status=proposed
+            elif [ "$COMMIT_OUTCOME" = "failure" ]; then status=rejected; reason="the verified patch could not be committed (see the workflow log)"
+            else status="$COMMIT_STATUS"; reason="$COMMIT_REASON"; sha="$COMMIT_SHA"
+            fi
+          fi
+          node "$CLI" report --dir "$RESULTS" --run-url "$RUN_URL" --out "$RUNNER_TEMP/comment.md" \
+            --status "$status" --reason "$reason" --sha "$sha"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          { echo "reason<<REASON_EOF"; echo "$reason"; echo "REASON_EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: Post or update the PR comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          COMMENT_FILE: ${{ runner.temp }}/comment.md
+        with:
+          script: |
+            const fs = require('node:fs');
+            const body = fs.readFileSync(process.env.COMMENT_FILE, 'utf8');
+            const marker = '<!-- taskly-pr-test-agent -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.startsWith(marker));
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+      # The comment carries the detail; the check's colour carries the verdict.
+      - name: Fail the check when the agent's tests were not accepted
+        if: steps.render.outputs.status == 'failed' || steps.render.outputs.status == 'rejected'
+        env:
+          STATUS: ${{ steps.render.outputs.status }}
+          REASON: ${{ steps.render.outputs.reason }}
+        run: |
+          echo "::error::PR Test Agent ${STATUS}: ${REASON}"
+          exit 1

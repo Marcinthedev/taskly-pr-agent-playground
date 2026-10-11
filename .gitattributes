@@ -1,0 +1,2 @@
+# Demo patches must stay byte-exact for git apply.
+docs/pr-agent-demo/*.patch -text

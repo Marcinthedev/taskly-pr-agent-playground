@@ -192,7 +192,7 @@ jobs:
           claude_args: >-
             --model ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
             --max-turns 80
-            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/cli.mjs test:*),Bash(node scripts/pr-agent/cli.mjs typecheck:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
+            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/cli.mjs test:*),Bash(node scripts/pr-agent/cli.mjs typecheck:*),Bash(node scripts/pr-agent/cli.mjs format:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
             --disallowedTools "WebFetch,WebSearch"
           prompt: |
             Pull request #${{ github.event.pull_request.number }} changed application source.
@@ -275,7 +275,7 @@ jobs:
           elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete"
           elif [ "$CHANGED" != "true" ] && [ ! -f "$RESULTS/decision.json" ]; then status=failed; reason="the agent made no changes and returned no report; see the agent step log"
           elif [ "$CHANGED" != "true" ]; then status=skipped; reason="the agent decided no test changes were needed"
-          elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the generated tests failed typecheck or the test suite"
+          elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the generated tests failed typecheck, formatting or the test suite"
           elif [ "$INTEGRITY" != "success" ]; then status=rejected; reason="test files changed while the tests ran, so the verified result cannot be trusted"
           else status=verified; reason=""
           fi

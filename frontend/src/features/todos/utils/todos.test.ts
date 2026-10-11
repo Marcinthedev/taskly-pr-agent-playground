@@ -36,12 +36,9 @@ describe('selectTodos', () => {
     const late = { ...base, id: 3, due_date: '2026-11-01' }
     const undatedOld = { ...base, id: 4 }
     const undatedNew = { ...base, id: 5 }
-    expect(selectTodos([undatedOld, late, undatedNew, early], 'all', '', 'due')).toEqual([
-      early,
-      late,
-      undatedNew,
-      undatedOld,
-    ])
+    expect(
+      selectTodos([undatedOld, late, undatedNew, early], 'all', '', 'due'),
+    ).toEqual([early, late, undatedNew, undatedOld])
   })
 
   it('sorts newest first by creation time, breaking ties by id', () => {
@@ -76,8 +73,14 @@ describe('validateTodo', () => {
 
   it.each([
     [{ title: '   ' }, { title: 'Enter a task title.' }],
-    [{ title: 'x'.repeat(121) }, { title: 'The title must be at most 120 characters.' }],
-    [{ description: 'x'.repeat(2001) }, { description: 'The description must be at most 2000 characters.' }],
+    [
+      { title: 'x'.repeat(121) },
+      { title: 'The title must be at most 120 characters.' },
+    ],
+    [
+      { description: 'x'.repeat(2001) },
+      { description: 'The description must be at most 2000 characters.' },
+    ],
     [{ due_date: '2026-02-30' }, { due_date: 'Enter a valid date.' }],
     [{ due_date: '15.10.2026' }, { due_date: 'Enter a valid date.' }],
   ])('reports %j as %j', (change, errors) => {
@@ -85,7 +88,9 @@ describe('validateTodo', () => {
   })
 
   it('accepts exactly 120 title characters after trimming', () => {
-    expect(validateTodo({ ...valid, title: ` ${'x'.repeat(120)} ` })).toEqual({})
+    expect(validateTodo({ ...valid, title: ` ${'x'.repeat(120)} ` })).toEqual(
+      {},
+    )
   })
 })
 
@@ -97,7 +102,9 @@ describe('isOverdue', () => {
     vi.setSystemTime(new Date(2026, 9, 11, 9, 0))
     expect(isOverdue({ ...base, due_date: '2026-10-10' })).toBe(true)
     expect(isOverdue({ ...base, due_date: '2026-10-11' })).toBe(false)
-    expect(isOverdue({ ...base, due_date: '2026-10-10', completed: true })).toBe(false)
+    expect(
+      isOverdue({ ...base, due_date: '2026-10-10', completed: true }),
+    ).toBe(false)
     expect(isOverdue({ ...base, due_date: null })).toBe(false)
   })
 })

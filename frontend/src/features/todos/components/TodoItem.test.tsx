@@ -43,11 +43,17 @@ it('completes and deletes through labelled controls', async () => {
 })
 
 it('shows a completed task with its description and an action to reopen it', () => {
-  renderItem({ ...todoFixture, completed: true, description: 'Slides and demo script' })
+  renderItem({
+    ...todoFixture,
+    completed: true,
+    description: 'Slides and demo script',
+  })
   expect(screen.getByText('Completed')).toBeVisible()
   expect(screen.getByText('Slides and demo script')).toBeVisible()
   expect(
-    screen.getByRole('checkbox', { name: `Mark as active: ${todoFixture.title}` }),
+    screen.getByRole('checkbox', {
+      name: `Mark as active: ${todoFixture.title}`,
+    }),
   ).toBeChecked()
 })
 
@@ -55,7 +61,9 @@ it('marks an open task past its due date as overdue', () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date(2026, 9, 20, 12, 0))
   renderItem({ ...todoFixture, due_date: '2026-10-15' })
-  expect(screen.getByText(/15 Oct 2026/)).toHaveTextContent('15 Oct 2026 · overdue')
+  expect(screen.getByText(/15 Oct 2026/)).toHaveTextContent(
+    '15 Oct 2026 · overdue',
+  )
 })
 
 it('shows a future due date without the overdue marker', () => {
@@ -68,5 +76,6 @@ it('shows a future due date without the overdue marker', () => {
 it('disables every control while busy', () => {
   renderItem(todoFixture, true)
   expect(screen.getByRole('checkbox')).toBeDisabled()
-  for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled()
+  for (const button of screen.getAllByRole('button'))
+    expect(button).toBeDisabled()
 })

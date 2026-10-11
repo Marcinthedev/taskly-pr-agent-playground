@@ -50,7 +50,7 @@ The same agent and skills were also used to add missing tests to the existing ap
 | `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions and seams (fakes, mocks, fixtures) |
 | `test-verification` skill | same | Red/green loop, and what counts as a valid green |
 | Workflow | [.github/workflows/pr-test-agent.yml](.github/workflows/pr-test-agent.yml) | Orchestration and trust boundaries |
-| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Plan, guard, sandboxed test runner, report, usage (41 tests) |
+| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Plan, guard, sandboxed test runner, report, usage (46 tests) |
 
 **A run, step by step:**
 1. **Plan:** each changed source file is mapped to its test file.
@@ -68,6 +68,7 @@ The same agent and skills were also used to add missing tests to the existing ap
 6. fakes only at input and output boundaries
 7. is isolated and deterministic
 8. reads as arrange, act, assert, with no logic and nothing skipped
+9. is typed and formatted like production code: strict typecheck, no `@ts-ignore` or `as any` to silence errors, Prettier for frontend tests
 
 The tests added to the existing app (the coverage table above) were written to these principles, and the rule now makes them explicit for the agent.
 

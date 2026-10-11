@@ -47,14 +47,25 @@ export function agentUsage(log) {
   const result = log.findLast((message) => message?.type === "result");
   if (!result) return null;
   const number = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
+  // `usage` covers only the coordinating agent. `modelUsage` covers the whole
+  // session, subagents included, so it wins whenever it is present.
+  const models = result.modelUsage && typeof result.modelUsage === "object" ? Object.values(result.modelUsage) : [];
+  const sum = (field) => (models.length ? models.reduce((total, model) => total + (number(model?.[field]) ?? 0), 0) : null);
+
+  // num_turns counts the coordinator only; subagent turns appear in the log
+  // as assistant messages with a parent_tool_use_id.
+  const assistantTurns = log.filter((message) => message?.type === "assistant").length;
+  const turns = Math.max(number(result.num_turns) ?? 0, assistantTurns);
+
   return {
     costUsd: number(result.total_cost_usd),
-    turns: number(result.num_turns),
+    turns: turns || null,
     durationMs: number(result.duration_ms),
-    inputTokens: number(result.usage?.input_tokens),
-    outputTokens: number(result.usage?.output_tokens),
-    cacheWriteTokens: number(result.usage?.cache_creation_input_tokens),
-    cacheReadTokens: number(result.usage?.cache_read_input_tokens),
+    inputTokens: sum("inputTokens") ?? number(result.usage?.input_tokens),
+    outputTokens: sum("outputTokens") ?? number(result.usage?.output_tokens),
+    cacheWriteTokens: sum("cacheCreationInputTokens") ?? number(result.usage?.cache_creation_input_tokens),
+    cacheReadTokens: sum("cacheReadInputTokens") ?? number(result.usage?.cache_read_input_tokens),
   };
 }
 

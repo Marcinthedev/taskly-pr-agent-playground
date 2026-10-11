@@ -3,8 +3,19 @@ import { expect, it } from 'vitest'
 import { todoFixture } from '../../../test/todoFixture'
 import { useTodoFilters } from './useTodoFilters'
 
-const active = { ...todoFixture, id: 1, title: 'Write report', priority: 'low' as const }
-const done = { ...todoFixture, id: 2, title: 'Book flights', completed: true, priority: 'high' as const }
+const active = {
+  ...todoFixture,
+  id: 1,
+  title: 'Write report',
+  priority: 'low' as const,
+}
+const done = {
+  ...todoFixture,
+  id: 2,
+  title: 'Book flights',
+  completed: true,
+  priority: 'high' as const,
+}
 
 it('starts showing every task, newest first', () => {
   const { result } = renderHook(() => useTodoFilters([active, done]))

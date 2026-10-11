@@ -143,11 +143,12 @@ export function renderReport({ plan, decision, guard, verification = {}, usage =
   const areas = Object.keys(verification);
   if (areas.length) {
     lines.push("### Verification (run by the workflow, not the agent)", "");
-    lines.push("| Area | Typecheck | Tests | Line coverage |", "| --- | --- | --- | --- |");
+    lines.push("| Area | Typecheck | Format | Tests | Line coverage |", "| --- | --- | --- | --- | --- |");
     for (const area of areas) {
       const result = verification[area];
       const typecheck = `${ICON[result.typecheck] ?? "❔"} ${result.typecheck ?? "not run"}`;
-      lines.push(`| ${area} | ${typecheck} | ${testsCell(result.tests)} | ${coverageCell(result.coverageBefore, result.coverageAfter)} |`);
+      const format = result.format ? `${ICON[result.format] ?? "❔"} ${result.format}` : "n/a";
+      lines.push(`| ${area} | ${typecheck} | ${format} | ${testsCell(result.tests)} | ${coverageCell(result.coverageBefore, result.coverageAfter)} |`);
     }
     const failures = areas.flatMap((area) => verification[area].tests?.failures ?? []);
     if (failures.length) {

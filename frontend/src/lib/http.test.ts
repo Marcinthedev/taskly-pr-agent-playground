@@ -95,9 +95,9 @@ describe('request', () => {
     const abortError = new DOMException('Aborted', 'AbortError')
     globalThis.fetch = vi.fn().mockRejectedValue(abortError)
 
-    await expect(
-      request('/todos', { signal: controller.signal }),
-    ).rejects.toBe(abortError)
+    await expect(request('/todos', { signal: controller.signal })).rejects.toBe(
+      abortError,
+    )
   })
 
   it('surfaces validation details in a friendly message', async () => {

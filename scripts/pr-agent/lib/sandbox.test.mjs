@@ -57,6 +57,23 @@ test("buildCommand supports frontend files, typecheck and coverage runs", () => 
   });
 });
 
+test("buildCommand formats or checks frontend test files with the repo's Prettier config", () => {
+  assert.deepEqual(buildCommand("format", "frontend", ["frontend/src/lib/http.test.ts"]), {
+    cwd: "frontend",
+    args: ["prettier", "--write", "src/lib/http.test.ts"],
+  });
+  assert.deepEqual(buildCommand("format-check", "frontend", ["frontend/src/lib/http.test.ts"]), {
+    cwd: "frontend",
+    args: ["prettier", "--check", "src/lib/http.test.ts"],
+  });
+});
+
+test("buildCommand refuses formatting without files, outside tests, or for the backend", () => {
+  assert.throws(() => buildCommand("format", "frontend", []), /at least one test file/);
+  assert.throws(() => buildCommand("format", "frontend", ["frontend/src/App.tsx"]), /not a frontend test file/);
+  assert.throws(() => buildCommand("format", "backend", ["backend/tests/router.test.ts"]), /no formatter/);
+});
+
 test("buildCommand writes coverage into a caller-chosen folder", () => {
   // Each run gets a fresh folder, so no run has to delete files that another
   // OS user (the sandbox) created in a shared coverage/ folder.

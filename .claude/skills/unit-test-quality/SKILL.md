@@ -7,7 +7,7 @@ description: The definition of a well-constructed unit test, as a checklist. Use
 
 A well-constructed unit test proves **one behaviour** through the module's **public interface**. It fails when that behaviour breaks, and stays green through any refactor that keeps the behaviour.
 
-Every test you write or edit meets all eight rules. Read each test against the checklist before you call it done.
+Every test you write or edit meets all nine rules. Read each test against the checklist before you call it done.
 
 ## The rules
 
@@ -23,6 +23,11 @@ Every test you write or edit meets all eight rules. Read each test against the c
 6. **Fakes at the boundary only.** Replace IO: network, database, clock, randomness, the environment, and expensive child components on a seam the skills name. Use the real code for everything inside the module under test. If a test needs many mocks, the seam is probably wrong.
 7. **Isolated and deterministic.** Each test builds its own state, through a `setup()` helper or a fixture spread, and restores anything global: mocks, timers, `process.env`, `fetch`. The suite gives the same result in any order, at any time of day, offline, in milliseconds.
 8. **Readable at a glance.** Arrange, act, assert, in that order. No `if`, loops or try/catch in a test body; a table belongs in `it.each`. Setup noise goes into helpers. No large snapshots. No `.skip`, `.only`, `.todo` or `it.fails` left behind.
+9. **Typed and formatted like production code.** Test files go through the area's strict typecheck.
+   - Use typed fakes, such as `vi.fn<Logger['error']>()` or a fake built with `satisfies`.
+   - When a fake can't match a large framework type, cast once, inside the setup helper (`as unknown as Database`), never in an assertion.
+   - `@ts-ignore`, `@ts-expect-error` and `as any` never silence a type error.
+   - Frontend tests are formatted with `node scripts/pr-agent/cli.mjs format frontend <files>`. Backend tests follow the style of the neighbouring test file.
 
 ## Updating an existing test
 

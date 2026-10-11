@@ -20,10 +20,15 @@ it('sends the change and replaces the task in the cached list', async () => {
   })
 
   await act(() =>
-    result.current.mutateAsync({ id: todoFixture.id, input: { completed: true } }),
+    result.current.mutateAsync({
+      id: todoFixture.id,
+      input: { completed: true },
+    }),
   )
 
-  expect(todosApi.update).toHaveBeenCalledWith(todoFixture.id, { completed: true })
+  expect(todosApi.update).toHaveBeenCalledWith(todoFixture.id, {
+    completed: true,
+  })
   expect(client.getQueryData(todoKeys.list)).toEqual([saved, other])
 })
 

@@ -32,6 +32,38 @@ test("agentUsage reads cost, turns, duration and tokens from the run log", () =>
   });
 });
 
+test("agentUsage counts subagent work: per-model totals and every assistant turn", () => {
+  // The coordinator's own `usage` excludes the subagent that did the work;
+  // `modelUsage` covers the whole session.
+  const log = [
+    { type: "assistant", message: {} },
+    { type: "assistant", message: {}, parent_tool_use_id: "toolu_1" },
+    { type: "assistant", message: {}, parent_tool_use_id: "toolu_1" },
+    { type: "assistant", message: {} },
+    {
+      type: "result",
+      total_cost_usd: 0.28,
+      num_turns: 2,
+      duration_ms: 74000,
+      usage: { input_tokens: 4, output_tokens: 1000, cache_read_input_tokens: 30500, cache_creation_input_tokens: 8600 },
+      modelUsage: {
+        "claude-sonnet-5-5": { inputTokens: 40, outputTokens: 21000, cacheReadInputTokens: 900000, cacheCreationInputTokens: 60000, costUSD: 0.25 },
+        "claude-haiku-5-5": { inputTokens: 10, outputTokens: 500, cacheReadInputTokens: 2000, cacheCreationInputTokens: 0, costUSD: 0.03 },
+      },
+    },
+  ];
+
+  assert.deepEqual(agentUsage(log), {
+    costUsd: 0.28,
+    turns: 4,
+    durationMs: 74000,
+    inputTokens: 50,
+    outputTokens: 21500,
+    cacheWriteTokens: 60000,
+    cacheReadTokens: 902000,
+  });
+});
+
 test("agentUsage tolerates missing fields and missing logs", () => {
   assert.deepEqual(agentUsage([{ type: "result", num_turns: 3 }]), {
     costUsd: null,

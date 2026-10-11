@@ -10,7 +10,11 @@ vi.mock('../hooks/useDeleteTodoMutation', () => ({
   useDeleteTodoMutation: vi.fn(),
 }))
 
-function mockMutation(state: { isPending?: boolean; error?: Error | null; mutateAsync?: ReturnType<typeof vi.fn> }) {
+function mockMutation(state: {
+  isPending?: boolean
+  error?: Error | null
+  mutateAsync?: ReturnType<typeof vi.fn>
+}) {
   const mutateAsync = state.mutateAsync ?? vi.fn().mockResolvedValue(undefined)
   vi.mocked(useDeleteTodoMutation).mockReturnValue({
     isPending: state.isPending ?? false,
@@ -24,7 +28,12 @@ function renderDialog(busy = false) {
   const onClose = vi.fn()
   const onDeleted = vi.fn()
   render(
-    <DeleteTodoDialog todo={todoFixture} busy={busy} onClose={onClose} onDeleted={onDeleted} />,
+    <DeleteTodoDialog
+      todo={todoFixture}
+      busy={busy}
+      onClose={onClose}
+      onDeleted={onDeleted}
+    />,
   )
   return { onClose, onDeleted }
 }
@@ -36,7 +45,9 @@ it('shows a deletion error and allows cancelling without deleting', async () => 
 
   expect(screen.getByRole('dialog', { name: 'Delete task?' })).toBeVisible()
   expect(
-    screen.getByText(`The task “${todoFixture.title}” will be permanently deleted.`),
+    screen.getByText(
+      `The task “${todoFixture.title}” will be permanently deleted.`,
+    ),
   ).toBeVisible()
   expect(screen.getByTestId('alert')).toHaveTextContent('Could not delete.')
   await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -58,7 +69,9 @@ it('deletes the task and reports success', async () => {
 
 it('stays open when the deletion fails', async () => {
   const user = userEvent.setup()
-  mockMutation({ mutateAsync: vi.fn().mockRejectedValue(new Error('Task not found.')) })
+  mockMutation({
+    mutateAsync: vi.fn().mockRejectedValue(new Error('Task not found.')),
+  })
   const { onDeleted, onClose } = renderDialog()
 
   await user.click(screen.getByRole('button', { name: 'Delete task' }))

@@ -145,10 +145,33 @@ test("renderReport shows the agent decision, guard, verification and coverage de
   assert.ok(markdown.startsWith(REPORT_MARKER));
   assert.match(markdown, /tests_updated/);
   assert.match(markdown, /`backend-unit-tests`/);
-  assert.match(markdown, /\| backend \| ✅ success \| 12 \/ 12 passed \| 50% → 62.5% \(\+12.5\) \|/);
+  // The backend has no formatter, so its format cell says n/a.
+  assert.match(markdown, /\| backend \| ✅ success \| n\/a \| 12 \/ 12 passed \| 50% → 62.5% \(\+12.5\) \|/);
   assert.match(markdown, /Committed .*abc1234/);
   assert.match(markdown, /README\.md/);
   assert.match(markdown, /actions\/runs\/1/);
+});
+
+test("renderReport shows the formatting result of frontend tests", () => {
+  const markdown = renderReport({
+    plan: { ...plan, areas: ["frontend"] },
+    decision: null,
+    guard: null,
+    verification: {
+      frontend: {
+        typecheck: "success",
+        format: "failure",
+        tests: { total: 3, passed: 3, failed: 0, skipped: 0, failures: [] },
+        coverageBefore: null,
+        coverageAfter: null,
+      },
+    },
+    outcome: { status: "rejected", reason: "the generated tests do not follow the repository's formatting" },
+    runUrl: "https://github.com/o/r/actions/runs/3",
+  });
+
+  assert.match(markdown, /\| Area \| Typecheck \| Format \| Tests \| Line coverage \|/);
+  assert.match(markdown, /\| frontend \| ✅ success \| ❌ failure \| 3 \/ 3 passed \|/);
 });
 
 test("renderReport lists failures and guard violations and never claims a commit", () => {

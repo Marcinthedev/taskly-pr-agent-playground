@@ -21,8 +21,21 @@ export function scrubbedEnv(source = process.env) {
   return { ...env, CI: "true", NODE_ENV: "test", FORCE_COLOR: "0" };
 }
 
+// Areas with a formatter config. The backend has none; its tests follow the
+// style of the neighbouring file instead.
+export const FORMATTER = { frontend: "prettier" };
+
+function relativeTestFiles(area, files) {
+  return files.map((file) => {
+    if (!isSafeRelativePath(file) || !TEST_FILE[area].test(file)) {
+      throw new Error(`${file} is not a ${area} test file`);
+    }
+    return file.slice(area.length + 1);
+  });
+}
+
 /**
- * @param {"test" | "typecheck"} action
+ * @param {"test" | "typecheck" | "format" | "format-check"} action
  * @param {"backend" | "frontend"} area
  * @param {string[]} files  repository-relative test files; empty runs the whole suite
  * @param {{ json?: string, coverage?: boolean, coverageDir?: string }} options
@@ -30,16 +43,17 @@ export function scrubbedEnv(source = process.env) {
 export function buildCommand(action, area, files = [], { json, coverage = false, coverageDir } = {}) {
   if (!TEST_FILE[area]) throw new Error(`Unknown area: ${area}`);
   if (action === "typecheck") return { cwd: area, args: ["tsc", "--noEmit"] };
+  if (action === "format" || action === "format-check") {
+    if (!FORMATTER[area]) throw new Error(`The ${area} has no formatter configured`);
+    if (!files.length) throw new Error("Formatting needs at least one test file");
+    return {
+      cwd: area,
+      args: [FORMATTER[area], action === "format" ? "--write" : "--check", ...relativeTestFiles(area, files)],
+    };
+  }
   if (action !== "test") throw new Error(`Unknown action: ${action}`);
 
-  const relative = files.map((file) => {
-    if (!isSafeRelativePath(file) || !TEST_FILE[area].test(file)) {
-      throw new Error(`${file} is not a ${area} test file`);
-    }
-    return file.slice(area.length + 1);
-  });
-
-  const args = ["vitest", "run", ...relative];
+  const args = ["vitest", "run", ...relativeTestFiles(area, files)];
   if (json) args.push("--reporter=default", "--reporter=json", `--outputFile.json=${json}`);
   if (coverage) {
     // reportOnFailure: a red baseline (e.g. a PR that broke a test) still gets a coverage number.
@@ -56,6 +70,7 @@ export function buildCommand(action, area, files = [], { json, coverage = false,
 const BINARIES = {
   vitest: ["node_modules", "vitest", "vitest.mjs"],
   tsc: ["node_modules", "typescript", "bin", "tsc"],
+  prettier: ["node_modules", "prettier", "bin", "prettier.cjs"],
 };
 
 export function spawnSpec({ cwd, args }, { repoRoot = process.cwd(), execPath = process.execPath, env = process.env } = {}) {

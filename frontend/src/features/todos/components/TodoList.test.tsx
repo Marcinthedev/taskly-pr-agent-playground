@@ -84,7 +84,9 @@ it('renders each task and forwards actions with the task', async () => {
 
   expect(screen.getAllByRole('listitem')).toHaveLength(2)
   await user.click(screen.getByRole('button', { name: 'toggle Ship it' }))
-  await user.click(screen.getByRole('button', { name: `edit ${todoFixture.title}` }))
+  await user.click(
+    screen.getByRole('button', { name: `edit ${todoFixture.title}` }),
+  )
   await user.click(screen.getByRole('button', { name: 'delete Ship it' }))
   expect(onToggle).toHaveBeenCalledWith(second)
   expect(onEdit).toHaveBeenCalledWith(todoFixture)

@@ -34,24 +34,41 @@ vi.mock('./components/TodoList', () => ({
     <ul>
       {props.todos.map((todo) => (
         <li key={todo.id}>
-          <button onClick={() => props.onToggle(todo)}>toggle {todo.title}</button>
+          <button onClick={() => props.onToggle(todo)}>
+            toggle {todo.title}
+          </button>
           <button onClick={() => props.onEdit(todo)}>edit {todo.title}</button>
-          <button onClick={() => props.onDelete(todo)}>delete {todo.title}</button>
+          <button onClick={() => props.onDelete(todo)}>
+            delete {todo.title}
+          </button>
         </li>
       ))}
     </ul>
   ),
 }))
 vi.mock('./components/TodoEditor', () => ({
-  TodoEditor: (props: { todo: Todo | 'new'; onSaved: (notice: string) => void; onClose: () => void }) => (
-    <div role="dialog" aria-label={props.todo === 'new' ? 'New task' : `Edit ${props.todo.title}`}>
+  TodoEditor: (props: {
+    todo: Todo | 'new'
+    onSaved: (notice: string) => void
+    onClose: () => void
+  }) => (
+    <div
+      role="dialog"
+      aria-label={
+        props.todo === 'new' ? 'New task' : `Edit ${props.todo.title}`
+      }
+    >
       <button onClick={() => props.onSaved('New task added.')}>save</button>
       <button onClick={props.onClose}>close editor</button>
     </div>
   ),
 }))
 vi.mock('./components/DeleteTodoDialog', () => ({
-  DeleteTodoDialog: (props: { todo: Todo; onDeleted: () => void; onClose: () => void }) => (
+  DeleteTodoDialog: (props: {
+    todo: Todo
+    onDeleted: () => void
+    onClose: () => void
+  }) => (
     <div role="dialog" aria-label={`Delete ${props.todo.title}`}>
       <button onClick={props.onDeleted}>confirm delete</button>
       <button onClick={props.onClose}>keep task</button>
@@ -59,7 +76,9 @@ vi.mock('./components/DeleteTodoDialog', () => ({
   ),
 }))
 vi.mock('../../components/SuccessNotice', () => ({
-  SuccessNotice: ({ message }: { message: string }) => <p role="status">{message}</p>,
+  SuccessNotice: ({ message }: { message: string }) => (
+    <p role="status">{message}</p>
+  ),
 }))
 
 const notify = vi.fn()
@@ -107,12 +126,19 @@ beforeEach(() => {
 })
 
 it('displays a query failure and resets mutation errors before retrying', async () => {
-  const { user, refetch, reset } = setup({ todos: [], queryError: new Error('The server is unavailable.') })
-  expect(screen.getByTestId('alert')).toHaveTextContent('The server is unavailable.')
+  const { user, refetch, reset } = setup({
+    todos: [],
+    queryError: new Error('The server is unavailable.'),
+  })
+  expect(screen.getByTestId('alert')).toHaveTextContent(
+    'The server is unavailable.',
+  )
   await user.click(screen.getByRole('button', { name: 'Try again' }))
   await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1))
   expect(reset).toHaveBeenCalledTimes(1)
-  expect(reset.mock.invocationCallOrder[0]).toBeLessThan(refetch.mock.invocationCallOrder[0])
+  expect(reset.mock.invocationCallOrder[0]).toBeLessThan(
+    refetch.mock.invocationCallOrder[0],
+  )
 })
 
 it('shows a failed toggle in the page alert', () => {
@@ -124,9 +150,14 @@ it('completes an active task and celebrates', async () => {
   mutateAsync.mockResolvedValue({ ...todoFixture, completed: true })
   const { user } = setup()
 
-  await user.click(screen.getByRole('button', { name: `toggle ${todoFixture.title}` }))
+  await user.click(
+    screen.getByRole('button', { name: `toggle ${todoFixture.title}` }),
+  )
 
-  expect(mutateAsync).toHaveBeenCalledWith({ id: todoFixture.id, input: { completed: true } })
+  expect(mutateAsync).toHaveBeenCalledWith({
+    id: todoFixture.id,
+    input: { completed: true },
+  })
   expect(notify).toHaveBeenCalledWith('Another task complete. Well done!')
 })
 
@@ -137,7 +168,10 @@ it('reopens a completed task', async () => {
 
   await user.click(screen.getByRole('button', { name: `toggle ${done.title}` }))
 
-  expect(mutateAsync).toHaveBeenCalledWith({ id: done.id, input: { completed: false } })
+  expect(mutateAsync).toHaveBeenCalledWith({
+    id: done.id,
+    input: { completed: false },
+  })
   expect(notify).toHaveBeenCalledWith('Task marked as active.')
 })
 
@@ -145,7 +179,9 @@ it('stays quiet when the toggle fails', async () => {
   mutateAsync.mockRejectedValue(new Error('Task not found.'))
   const { user } = setup()
 
-  await user.click(screen.getByRole('button', { name: `toggle ${todoFixture.title}` }))
+  await user.click(
+    screen.getByRole('button', { name: `toggle ${todoFixture.title}` }),
+  )
 
   expect(notify).not.toHaveBeenCalled()
 })
@@ -153,7 +189,9 @@ it('stays quiet when the toggle fails', async () => {
 it('ignores toggles while another mutation is running', async () => {
   const { user } = setup({ busy: true })
 
-  await user.click(screen.getByRole('button', { name: `toggle ${todoFixture.title}` }))
+  await user.click(
+    screen.getByRole('button', { name: `toggle ${todoFixture.title}` }),
+  )
 
   expect(mutateAsync).not.toHaveBeenCalled()
 })
@@ -172,8 +210,12 @@ it('opens the editor for a new task and closes it after saving', async () => {
 it('opens the editor for an existing task and closes it on cancel', async () => {
   const { user } = setup()
 
-  await user.click(screen.getByRole('button', { name: `edit ${todoFixture.title}` }))
-  expect(screen.getByRole('dialog', { name: `Edit ${todoFixture.title}` })).toBeVisible()
+  await user.click(
+    screen.getByRole('button', { name: `edit ${todoFixture.title}` }),
+  )
+  expect(
+    screen.getByRole('dialog', { name: `Edit ${todoFixture.title}` }),
+  ).toBeVisible()
   await user.click(screen.getByRole('button', { name: 'close editor' }))
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -183,8 +225,12 @@ it('opens the editor for an existing task and closes it on cancel', async () => 
 it('confirms a deletion and announces it', async () => {
   const { user } = setup()
 
-  await user.click(screen.getByRole('button', { name: `delete ${todoFixture.title}` }))
-  expect(screen.getByRole('dialog', { name: `Delete ${todoFixture.title}` })).toBeVisible()
+  await user.click(
+    screen.getByRole('button', { name: `delete ${todoFixture.title}` }),
+  )
+  expect(
+    screen.getByRole('dialog', { name: `Delete ${todoFixture.title}` }),
+  ).toBeVisible()
   await user.click(screen.getByRole('button', { name: 'confirm delete' }))
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -194,7 +240,9 @@ it('confirms a deletion and announces it', async () => {
 it('keeps the task when the deletion is cancelled', async () => {
   const { user } = setup()
 
-  await user.click(screen.getByRole('button', { name: `delete ${todoFixture.title}` }))
+  await user.click(
+    screen.getByRole('button', { name: `delete ${todoFixture.title}` }),
+  )
   await user.click(screen.getByRole('button', { name: 'keep task' }))
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

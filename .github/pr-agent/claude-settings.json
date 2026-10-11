@@ -13,6 +13,7 @@
       "TodoWrite",
       "Bash(node scripts/pr-agent/cli.mjs test:*)",
       "Bash(node scripts/pr-agent/cli.mjs typecheck:*)",
+      "Bash(node scripts/pr-agent/cli.mjs format:*)",
       "Bash(git diff:*)",
       "Bash(git status:*)",
       "Bash(git log:*)",

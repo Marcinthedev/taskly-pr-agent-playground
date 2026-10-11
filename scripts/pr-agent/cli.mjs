@@ -4,6 +4,7 @@
 // Agent-facing (the only commands the agent may execute):
 //   test       <area> [test files...]                 Vitest in a credential-free environment
 //   typecheck  <area>                                 tsc in a credential-free environment
+//   format     <area> <test files...>                 apply the area's formatter (frontend: Prettier)
 //
 // Workflow-facing (results go to --dir, outside the agent's reach in CI):
 //   plan        --dir d --base <sha> --head <sha>      classify the PR diff, write plan.json + pr.diff
@@ -23,10 +24,10 @@ import { pathToFileURL } from "node:url";
 import { agentUsage, extractDecision, finalAgentText } from "./lib/decision.mjs";
 import { parseNameStatus, parsePorcelain, patchChanges } from "./lib/git.mjs";
 import { checkAgentChanges } from "./lib/guard.mjs";
-import { AREAS } from "./lib/paths.mjs";
+import { AREAS, TEST_FILE } from "./lib/paths.mjs";
 import { planChanges } from "./lib/plan.mjs";
 import { formatUsage, renderReport, summarizeCoverage, summarizeVitest } from "./lib/report.mjs";
-import { buildCommand, runCommand } from "./lib/sandbox.mjs";
+import { buildCommand, FORMATTER, runCommand } from "./lib/sandbox.mjs";
 
 const repoRoot = process.cwd();
 const AGENT_WORKSPACE_DIR = ".pr-agent";
@@ -144,9 +145,17 @@ function commandVerify({ positional, flags }) {
   const coverageSummary = path.join(scratch, "coverage", "coverage-summary.json");
 
   let typecheckOk = true;
+  let formatOk = true;
   if (!flags.baseline) {
     typecheckOk = runCommand(buildCommand("typecheck", area), { repoRoot }) === 0;
     fs.writeFileSync(path.join(dir, `${area}-typecheck.txt`), typecheckOk ? "success" : "failure");
+
+    // The agent's test files must follow the repository's formatter, where one exists.
+    const touched = (readJson(path.join(dir, "guard.json"))?.allowed ?? []).filter((file) => TEST_FILE[area].test(file));
+    if (FORMATTER[area] && touched.length) {
+      formatOk = runCommand(buildCommand("format-check", area, touched), { repoRoot }) === 0;
+      fs.writeFileSync(path.join(dir, `${area}-format.txt`), formatOk ? "success" : "failure");
+    }
   }
 
   runCommand(
@@ -164,8 +173,10 @@ function commandVerify({ positional, flags }) {
   // Pass/fail comes from the test results, not the exit code: coverage
   // thresholds can fail a run whose tests all passed.
   const testsOk = vitestPassed(readJson(testsJson));
-  console.log(`${area} ${phase}: typecheck=${typecheckOk ? "success" : "failure"} tests=${testsOk ? "passed" : "failed"}`);
-  if (!flags.baseline && !(typecheckOk && testsOk)) process.exitCode = 1;
+  console.log(
+    `${area} ${phase}: typecheck=${typecheckOk ? "success" : "failure"} format=${formatOk ? "success" : "failure"} tests=${testsOk ? "passed" : "failed"}`,
+  );
+  if (!flags.baseline && !(typecheckOk && formatOk && testsOk)) process.exitCode = 1;
 }
 
 function commandDecision({ flags }) {
@@ -229,6 +240,9 @@ function commandReport({ flags }) {
     const typecheckFile = path.join(dir, `${area}-typecheck.txt`);
     verification[area] = {
       typecheck: fs.existsSync(typecheckFile) ? fs.readFileSync(typecheckFile, "utf8").trim() : "skipped",
+      format: fs.existsSync(path.join(dir, `${area}-format.txt`))
+        ? fs.readFileSync(path.join(dir, `${area}-format.txt`), "utf8").trim()
+        : null,
       tests: summarizeVitest(readJson(path.join(dir, `${area}-tests.json`))),
       coverageBefore: summarizeCoverage(readJson(path.join(dir, `${area}-coverage-before.json`))),
       coverageAfter: summarizeCoverage(readJson(path.join(dir, `${area}-coverage-after.json`))),
@@ -250,6 +264,7 @@ function commandReport({ flags }) {
 const COMMANDS = {
   test: (args) => commandTest(args, "test"),
   typecheck: (args) => commandTest(args, "typecheck"),
+  format: (args) => commandTest(args, "format"),
   plan: commandPlan,
   verify: commandVerify,
   decision: commandDecision,

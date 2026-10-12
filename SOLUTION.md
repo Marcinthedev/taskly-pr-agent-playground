@@ -65,7 +65,7 @@ flowchart TD
 - **Standards:** generated tests must pass the strict typecheck and Prettier, and follow the nine quality rules in section 3. Anything else is rejected.
 - **Bounded and traceable runs:**
   - capped at 40 turns and 15 minutes
-  - tokens and estimated cost reported in the PR comment and the commit message
+  - tokens reported in the PR comment and the commit message, plus the estimated cost on Claude
   - an audit record for every run
 
 ## 2. How to run the PR workflow
@@ -83,12 +83,15 @@ Set the three agent lines in `pr-agent.env`, add the matching secret, and push t
 | --- | --- | --- | --- | --- |
 | **Claude, Pro or Max plan (default)** | `claude-code` | empty | `claude-sonnet-5-5` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | Claude, API key | `claude-code` | empty | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
-| Google Gemini (free tier) | `openai-compatible` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` | `PR_AGENT_API_KEY` |
+| Google Gemini (paid tier) | `openai-compatible` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` | `PR_AGENT_API_KEY` |
 | OpenAI (ChatGPT models) | `openai-compatible` | `https://api.openai.com/v1` | `gpt-5` | `PR_AGENT_API_KEY` |
 | Groq (free tier) | `openai-compatible` | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` | `PR_AGENT_API_KEY` |
 | OpenRouter (`:free` models) | `openai-compatible` | `https://openrouter.ai/api/v1` | `qwen/qwen3-coder:free` | `PR_AGENT_API_KEY` |
 
 - **More presets:** Mistral, DeepSeek, xAI and self-hosted servers are listed at the bottom of `pr-agent.env`.
+- **Free tiers:** a run makes one request per agent turn, usually 20–40.
+  - Gemini's free tier allows 20 requests a day for `gemini-3.8-flash`, so it can't finish a run. Enable billing on the key.
+  - Check any provider's daily request limit before relying on its free tier.
 - **Model IDs change:** if a run fails with HTTP 404, the PR comment quotes the provider's message, which usually names the replacement model.
 - **Other Claude models:** `claude-opus-5-5` suits harder PRs and `claude-haiku-5-5` costs less.
 
@@ -177,6 +180,7 @@ For all three:
 - **Reliability:** busy or rate-limited providers (HTTP 429, 5xx) are retried up to five times with growing delays. Any other error stops the run, and the PR comment quotes it.
 - **Prerequisites:**
   - the model supports tool calling
+  - a request quota of at least 40 requests per run
   - the provider's terms allow sending your code to it
 - **Trade-offs:**
   - Claude Code's own tooling (subagents, file editing by diff, prompt caching) isn't available, so runs can cost more tokens.
@@ -259,9 +263,13 @@ For all three:
 - **No secret scan.** The patch isn't scanned for secrets before it's committed.
 - **The `openai-compatible` engine has no completed real run yet.**
   - It's covered by unit tests and a local smoke test with a fake provider.
-  - On GitHub Actions, Gemini accepted the settings, the key and the request format.
-  - Those runs stopped on a retired model ID (HTTP 404) and then a provider overload (HTTP 503). Both are now handled: the error is quoted in the PR comment, and overloads are retried.
-  - The example run in section 4 used Claude Code.
+  - On GitHub Actions, Gemini accepted the settings, the key and the request format, and answered the agent's first turns.
+  - The test runs were stopped by the provider, never by the workflow:
+    - a retired model ID (HTTP 404)
+    - an overload (HTTP 503)
+    - the free tier's daily cap of 20 requests (HTTP 429)
+  - Each error is quoted in the PR comment, and overloads and rate limits are retried.
+  - A full Gemini run needs a paid tier. The example run in section 4 used Claude Code.
 
 ## 7. What I'd change for production
 

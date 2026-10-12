@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { type AgentReport, agentUsage, type AgentUsage, finalResultText, parseAgentReport } from "./lib/agent-result.ts";
+import { buildAuditRecord } from "./lib/audit-record.ts";
 import { type ChangePlan, planChanges } from "./lib/change-plan.ts";
 import { CHANGE_POLICIES, type PolicyName, type PolicyResult } from "./lib/change-policy.ts";
 import { filesInPatch, parseNameStatus, parsePorcelainStatus } from "./lib/git-output.ts";
@@ -215,29 +216,75 @@ function checkPatch({ flags }: Args): void {
   if (!result.ok || !changes.length) process.exitCode = 1;
 }
 
+function modeFrom(flags: Flags): PolicyName {
+  const mode = flags.mode ?? "tests";
+  if (!(mode in CHANGE_POLICIES)) throw new Error(`Unknown mode: ${mode}`);
+  return mode as PolicyName;
+}
+
+function loadVerification(dir: string, plan: ChangePlan | null): Record<string, AreaVerification> {
+  if (!plan?.needsTests) return {};
+  return Object.fromEntries(
+    plan.areas.map((area) => [
+      area,
+      {
+        typecheck: readText(path.join(dir, `${area}-typecheck.txt`)) ?? "skipped",
+        format: readText(path.join(dir, `${area}-format.txt`)),
+        tests: summarizeVitest(readJson(path.join(dir, `${area}-tests.json`))),
+        linesBefore: lineCoverage(readJson(path.join(dir, `${area}-coverage-before.json`))),
+        linesAfter: lineCoverage(readJson(path.join(dir, `${area}-coverage-after.json`))),
+      },
+    ]),
+  );
+}
+
+function audit({ flags }: Args): void {
+  allowFlags(flags, ["dir", "out", "mode", "model", "max-turns", "timeout-minutes", "status", "reason", "sha"]);
+  const dir = requireFlag(flags, "dir");
+  const event = readJson<{
+    action?: string;
+    pull_request?: { number?: number; base?: { ref?: string }; head?: { sha?: string } };
+  }>(process.env.GITHUB_EVENT_PATH ?? "");
+  const plan = readJson<ChangePlan>(path.join(dir, "plan.json"));
+  const { GITHUB_SERVER_URL = "", GITHUB_REPOSITORY = "", GITHUB_RUN_ID = "", GITHUB_ACTOR = "" } = process.env;
+
+  const record = buildAuditRecord({
+    context: {
+      timestamp: new Date().toISOString(),
+      repository: GITHUB_REPOSITORY,
+      runUrl: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}`,
+      actor: GITHUB_ACTOR,
+      event: event?.action ?? "",
+      pr: event?.pull_request?.number ?? 0,
+      baseRef: event?.pull_request?.base?.ref ?? "",
+      headSha: event?.pull_request?.head?.sha ?? "",
+      mode: modeFrom(flags),
+      model: flags.model ?? "",
+      maxTurns: Number(flags["max-turns"] ?? 0),
+      timeoutMinutes: Number(flags["timeout-minutes"] ?? 0),
+    },
+    plan,
+    decision: readJson<AgentReport>(path.join(dir, "decision.json")),
+    guard: readJson<PolicyResult>(path.join(dir, "guard.json")),
+    verification: loadVerification(dir, plan),
+    usage: readJson<AgentUsage>(path.join(dir, "usage.json")),
+    outcome: { status: flags.status ?? "failed", reason: flags.reason, sha: flags.sha },
+  });
+  writeJson(requireFlag(flags, "out"), record);
+  console.log(JSON.stringify(record, null, 2));
+}
+
 function report({ flags }: Args): void {
   allowFlags(flags, ["dir", "run-url", "out", "status", "reason", "sha", "mode", "pr-url", "pr-number"]);
   const dir = requireFlag(flags, "dir");
   const changePlan = loadPlan(dir);
-  const verification: Record<string, AreaVerification> = {};
-  for (const area of changePlan.areas) {
-    verification[area] = {
-      typecheck: readText(path.join(dir, `${area}-typecheck.txt`)) ?? "skipped",
-      format: readText(path.join(dir, `${area}-format.txt`)),
-      tests: summarizeVitest(readJson(path.join(dir, `${area}-tests.json`))),
-      linesBefore: lineCoverage(readJson(path.join(dir, `${area}-coverage-before.json`))),
-      linesAfter: lineCoverage(readJson(path.join(dir, `${area}-coverage-after.json`))),
-    };
-  }
-  const mode = flags.mode ?? "tests";
-  if (!(mode in CHANGE_POLICIES)) throw new Error(`Unknown mode: ${mode}`);
 
   const markdown = renderComment({
-    mode: mode as PolicyName,
+    mode: modeFrom(flags),
     plan: changePlan,
     decision: readJson<AgentReport>(path.join(dir, "decision.json")),
     guard: readJson<PolicyResult>(path.join(dir, "guard.json")),
-    verification: changePlan.needsTests ? verification : {},
+    verification: loadVerification(dir, changePlan),
     usage: readJson<AgentUsage>(path.join(dir, "usage.json")),
     outcome: {
       status: flags.status ?? "failed",
@@ -264,6 +311,7 @@ const COMMANDS: Record<string, (args: Args) => void> = {
   patch,
   "check-patch": checkPatch,
   report,
+  audit,
 };
 
 const [command, ...rest] = process.argv.slice(2);

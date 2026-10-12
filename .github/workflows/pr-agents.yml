@@ -19,6 +19,9 @@ env:
   # pull_request.base.sha can lag behind the branch tip, so tooling and diffs use the branch name.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  MODEL: ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
+  MAX_TURNS: ${{ vars.PR_AGENT_MAX_TURNS || '40' }}
+  AGENT_TIMEOUT_MINUTES: ${{ vars.PR_AGENT_TIMEOUT_MINUTES || '15' }}
 
 jobs:
   skip-notice:
@@ -46,7 +49,7 @@ jobs:
       ((vars.PR_AGENT_ALLOWED_USERS == '' && github.actor == github.repository_owner) ||
        (vars.PR_AGENT_ALLOWED_USERS != '' && contains(format(',{0},', vars.PR_AGENT_ALLOWED_USERS), format(',{0},', github.actor))))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
@@ -190,7 +193,7 @@ jobs:
         id: agent
         if: steps.plan.outputs.needs_tests == 'true'
         continue-on-error: true
-        timeout-minutes: 25
+        timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
         uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -198,11 +201,20 @@ jobs:
           github_token: ${{ github.token }}
           settings: ${{ steps.brief.outputs.settings }}
           claude_args: >-
-            --model ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
-            --max-turns 80
+            --model ${{ env.MODEL }}
+            --max-turns ${{ env.MAX_TURNS }}
             --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,Skill,Task,Agent,TodoWrite,Bash(node scripts/pr-agent/pr-agent.ts test:*),Bash(node scripts/pr-agent/pr-agent.ts typecheck:*),Bash(node scripts/pr-agent/pr-agent.ts format:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git restore --:*),Bash(git clean -f --:*)"
             --disallowedTools "WebFetch,WebSearch"
           prompt: ${{ steps.brief.outputs.prompt }}
+
+      - name: Keep the agent transcript
+        if: always() && vars.PR_AGENT_KEEP_TRANSCRIPT == 'true' && steps.agent.outputs.execution_file != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-agent-transcript
+          path: ${{ steps.agent.outputs.execution_file }}
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Record the agent's decision
         if: steps.plan.outputs.needs_tests == 'true'
@@ -439,6 +451,26 @@ jobs:
       #         issue_number: context.payload.pull_request.number,
       #         name: 'testability',
       #       });
+
+      - name: Write the audit record
+        if: always()
+        env:
+          STATUS: ${{ steps.render.outputs.status }}
+          REASON: ${{ steps.render.outputs.reason }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          node "$CLI" audit --dir "$RESULTS" --out "$RUNNER_TEMP/audit/audit.json" \
+            --mode "$MODE" --model "$MODEL" --max-turns "$MAX_TURNS" --timeout-minutes "$AGENT_TIMEOUT_MINUTES" \
+            --status "${STATUS:-failed}" --reason "$REASON" --sha "$SHA"
+
+      - name: Upload the audit record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-agent-audit
+          path: ${{ runner.temp }}/audit/audit.json
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Fail the check when the agent's work was not accepted
         if: steps.render.outputs.status == 'failed' || steps.render.outputs.status == 'rejected'

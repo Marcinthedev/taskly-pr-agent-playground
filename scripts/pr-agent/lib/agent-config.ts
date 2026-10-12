@@ -24,6 +24,7 @@ export function parseEnvFile(text: string): Partial<Record<Setting, string>> {
     if (!match) throw new Error(`pr-agent.env line ${index + 1}: expected KEY=value`);
     const [, key, value] = match;
     if (!isSetting(key)) throw new Error(`pr-agent.env line ${index + 1}: unknown setting ${key}`);
+    if (key in values) throw new Error(`pr-agent.env line ${index + 1}: ${key} is set twice`);
     values[key] = value.trim();
   });
   return values;

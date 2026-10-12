@@ -41,9 +41,10 @@ test("lets non-empty repository variables override the file and ignores unrelate
   assert.equal(config.MAX_TURNS, "40");
 });
 
-test("rejects unknown keys and malformed lines", () => {
+test("rejects unknown keys, malformed lines and keys set twice", () => {
   assert.throws(() => parseEnvFile("PR_AGENT_API_KEY=sk-123"), /line 1: unknown setting PR_AGENT_API_KEY/);
   assert.throws(() => parseEnvFile("export PR_AGENT_MODEL=x"), /line 1: expected KEY=value/);
+  assert.throws(() => parseEnvFile("PR_AGENT_MODEL=a\n# preset\nPR_AGENT_MODEL=b"), /line 3: PR_AGENT_MODEL is set twice/);
 });
 
 test("rejects values that could break the workflow or leak the key", () => {

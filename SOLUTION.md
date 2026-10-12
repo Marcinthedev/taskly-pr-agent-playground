@@ -148,6 +148,8 @@ For all three:
   | OpenRouter (many vendors) | `https://openrouter.ai/api/v1` | `openai/gpt-5` |
   | Self-hosted (Ollama, vLLM) | your server's `/v1` address, HTTPS unless it's on the runner | the model you serve |
 
+  The full list of ready-to-copy presets, including Claude, Mistral, DeepSeek and xAI, is at the bottom of [pr-agent.env](.github/pr-agent/pr-agent.env).
+
 - **Prerequisites:**
   - the model supports tool calling
   - the provider's terms allow sending your code to it

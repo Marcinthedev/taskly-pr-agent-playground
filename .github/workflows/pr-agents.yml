@@ -19,6 +19,7 @@ env:
   # pull_request.base.sha can lag behind the branch tip, so tooling and diffs use the branch name.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  ENGINE: ${{ vars.PR_AGENT_ENGINE || 'claude-code' }}
   MODEL: ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
   MAX_TURNS: ${{ vars.PR_AGENT_MAX_TURNS || '40' }}
   AGENT_TIMEOUT_MINUTES: ${{ vars.PR_AGENT_TIMEOUT_MINUTES || '15' }}
@@ -191,7 +192,7 @@ jobs:
 
       - name: Run the agent
         id: agent
-        if: steps.plan.outputs.needs_tests == 'true'
+        if: steps.plan.outputs.needs_tests == 'true' && env.ENGINE == 'claude-code'
         continue-on-error: true
         timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
         uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
@@ -207,19 +208,31 @@ jobs:
             --disallowedTools "WebFetch,WebSearch"
           prompt: ${{ steps.brief.outputs.prompt }}
 
+      - name: Run the agent on an OpenAI-compatible model
+        id: agent-generic
+        if: steps.plan.outputs.needs_tests == 'true' && env.ENGINE == 'openai-compatible' && env.MODE == 'tests'
+        continue-on-error: true
+        timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
+        env:
+          PR_AGENT_API_BASE_URL: ${{ vars.PR_AGENT_API_BASE_URL }}
+          PR_AGENT_API_KEY: ${{ secrets.PR_AGENT_API_KEY }}
+        run: |
+          node "$CLI" agent --dir "$RESULTS" --out "$RUNNER_TEMP/agent-execution.json" \
+            --agent-file "$TRUSTED/.claude/agents/test-engineer.md" --skills-dir "$TRUSTED/.claude/skills"
+
       - name: Keep the agent transcript
-        if: always() && vars.PR_AGENT_KEEP_TRANSCRIPT == 'true' && steps.agent.outputs.execution_file != ''
+        if: always() && vars.PR_AGENT_KEEP_TRANSCRIPT == 'true' && (steps.agent.outputs.execution_file || steps.agent-generic.outputs.execution_file)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-agent-transcript
-          path: ${{ steps.agent.outputs.execution_file }}
+          path: ${{ steps.agent.outputs.execution_file || steps.agent-generic.outputs.execution_file }}
           if-no-files-found: ignore
           retention-days: 14
 
       - name: Record the agent's decision
         if: steps.plan.outputs.needs_tests == 'true'
         env:
-          EXECUTION_FILE: ${{ steps.agent.outputs.execution_file }}
+          EXECUTION_FILE: ${{ steps.agent.outputs.execution_file || steps.agent-generic.outputs.execution_file }}
         run: node "$CLI" decision --dir "$RESULTS" --execution-file "${EXECUTION_FILE:-none}"
 
       - name: Guard - only files the mode allows may change
@@ -268,7 +281,7 @@ jobs:
         env:
           PLAN: ${{ steps.plan.outcome }}
           NEEDS_TESTS: ${{ steps.plan.outputs.needs_tests }}
-          AGENT: ${{ steps.agent.outcome }}
+          AGENT: ${{ env.ENGINE == 'claude-code' && steps.agent.outcome || steps.agent-generic.outcome }}
           GUARD: ${{ steps.guard.outcome }}
           CHANGED: ${{ steps.guard.outputs.changed }}
           VERIFY: ${{ steps.verify.outcome }}
@@ -460,7 +473,7 @@ jobs:
           SHA: ${{ steps.commit.outputs.sha }}
         run: |
           node "$CLI" audit --dir "$RESULTS" --out "$RUNNER_TEMP/audit/audit.json" \
-            --mode "$MODE" --model "$MODEL" --max-turns "$MAX_TURNS" --timeout-minutes "$AGENT_TIMEOUT_MINUTES" \
+            --mode "$MODE" --engine "$ENGINE" --model "$MODEL" --max-turns "$MAX_TURNS" --timeout-minutes "$AGENT_TIMEOUT_MINUTES" \
             --status "${STATUS:-failed}" --reason "$REASON" --sha "$SHA"
 
       - name: Upload the audit record

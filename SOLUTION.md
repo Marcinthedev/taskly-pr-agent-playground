@@ -74,13 +74,16 @@ flowchart TD
 1. This code on the repository's default branch.
 2. A repository secret with the model credential:
    - `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` with a Claude Pro or Max plan, or
-   - `ANTHROPIC_API_KEY`.
+   - `ANTHROPIC_API_KEY`, or
+   - `PR_AGENT_API_KEY`, for a non-Claude model (see "Using other models or providers").
 
 **Optional repository variables**
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PR_AGENT_ALLOWED_USERS` | the repository owner | GitHub logins allowed to start the agent, comma-separated |
+| `PR_AGENT_ENGINE` | `claude-code` | `openai-compatible` runs the agent on any model with an OpenAI-style API |
+| `PR_AGENT_API_BASE_URL` | none | The model API's address, for the `openai-compatible` engine |
 | `PR_AGENT_MODEL` | `claude-sonnet-5-5` | The model the agent runs on |
 | `PR_AGENT_MAX_TURNS` | `40` | The agent's turn limit |
 | `PR_AGENT_TIMEOUT_MINUTES` | `15` | The agent's time limit |
@@ -102,7 +105,7 @@ What carries over unchanged in every case:
 - **The skills' content:** what to test, how, and what a good test is.
 - **The workflow's security setup.**
 
-Only the "Run the agent" step and the agent's credentials change.
+Only the engine, the model and its credentials change.
 
 **1. Another Claude model.** No code change.
 - Set `PR_AGENT_MODEL` to another Claude model ID, for example a larger model for harder PRs or a smaller one to save cost.
@@ -121,13 +124,32 @@ For all three:
 - **Model ID:** `PR_AGENT_MODEL` must use the provider's model ID, which differs from Anthropic's.
 - **No stored key:** you no longer keep a long-lived API key in GitHub secrets.
 
-**3. A non-Claude model** (an OpenAI or Gemini model, or a self-hosted one). The agent runtime itself changes, because claude-code-action only runs Claude. What then needs to be done:
-1. **Replace the "Run the agent" step** with that vendor's coding-agent CLI or GitHub Action, for example the Codex CLI or the Gemini CLI. It must be able to run in CI without prompts.
-2. **Port the agent and skills** into that tool's instruction format, for example an `AGENTS.md` file. The content stays the same.
-3. **Restrict the tools again:** no web access, file edits allowed, and shell commands limited to `node scripts/pr-agent/pr-agent.ts test|typecheck|format` and read-only git. The sandbox and the guard keep protecting the run, whatever the tool's own permission model allows.
-4. **Keep the report contract.** The agent must end with the same fenced JSON report, and `scripts/pr-agent/lib/agent-result.ts` needs a reader for the new tool's run log, so that decision and usage are still extracted.
-5. **Add the vendor's credentials** as a repository secret, and make sure its terms allow sending your code to it.
-6. **Re-run the example PR** and compare decision quality, cost and run time before switching for real.
+**3. Any other model: ChatGPT, Gemini, Llama and others.** Built in, no code change.
+- **How:** the `openai-compatible` engine is a small agent loop of our own in [scripts/pr-agent/lib/agent-loop.ts](scripts/pr-agent/lib/agent-loop.ts). It talks to any API that follows OpenAI's chat-completions format with tool calling, which most providers offer.
+- **Same agent, same skills:** it reads the same `test-engineer.md` and skills, and the model loads skills through a `load_skill` tool.
+- **Same boundaries, enforced in code:** no web or shell access. Files can be read except `.env`, `.git` and `node_modules`, writes are limited to test files, and commands go through the sandboxed runner. The guard and verification run after it as usual.
+- **Setup:**
+  1. Add the provider's key as the repository secret `PR_AGENT_API_KEY`.
+  2. Set the repository variables:
+     - `PR_AGENT_ENGINE` to `openai-compatible`
+     - `PR_AGENT_API_BASE_URL` to the API address
+     - `PR_AGENT_MODEL` to the provider's model ID
+
+  | Provider | `PR_AGENT_API_BASE_URL` | Example `PR_AGENT_MODEL` |
+  | --- | --- | --- |
+  | OpenAI (ChatGPT models) | `https://api.openai.com/v1` | `gpt-5` |
+  | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-pro` |
+  | OpenRouter (many vendors) | `https://openrouter.ai/api/v1` | `openai/gpt-5` |
+  | Self-hosted (Ollama, vLLM) | your server's `/v1` address, HTTPS unless it's on the runner | the model you serve |
+
+- **Prerequisites:**
+  - the model supports tool calling
+  - the provider's terms allow sending your code to it
+- **Trade-offs:**
+  - Claude Code's own tooling (subagents, file editing by diff, prompt caching) isn't available, so runs can cost more tokens.
+  - Quality depends on the model. Weaker models abstain or get rejected more often, but never commit unverified tests.
+  - The testability agent still needs the `claude-code` engine.
+  - Re-run the example PR and compare decision quality, cost and run time before switching for real.
 
 ## 3. Where the agent and skills are defined, and how they're used
 
@@ -140,7 +162,7 @@ For all three:
 | `frontend-unit-tests` skill | [.claude/skills/frontend-unit-tests](.claude/skills/frontend-unit-tests/SKILL.md) | This repo's frontend test conventions: what to mock and how |
 | `test-verification` skill | [.claude/skills/test-verification](.claude/skills/test-verification/SKILL.md) | The run-fix-repeat loop, formatting and typecheck |
 | Workflow | [.github/workflows/pr-agents.yml](.github/workflows/pr-agents.yml) | Runs everything and enforces the boundaries |
-| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, report and audit record. A separate TypeScript package with its own tests |
+| Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, report, audit record and the `openai-compatible` agent loop. A separate TypeScript package with its own tests |
 
 **A run, step by step** (the graph above):
 1. **Plan:** map each changed source file to its test file, skipping files with nothing to test.
@@ -202,6 +224,7 @@ For all three:
 - **Fork PRs are skipped,** because they get no secrets.
 - **Large PRs** can hit the turn or time limit. The run then fails cleanly, and normal CI isn't affected.
 - **No secret scan.** The patch isn't scanned for secrets before it's committed.
+- **The `openai-compatible` engine** is covered by unit tests and a local smoke test with a fake provider. The example run used Claude Code; I haven't run it against a real non-Claude provider yet.
 
 ## 7. What I'd change for production
 

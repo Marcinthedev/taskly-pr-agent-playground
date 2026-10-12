@@ -105,3 +105,22 @@ export function runSandboxed(command: SandboxCommand, { repoRoot = process.cwd()
   });
   return result.status ?? 1;
 }
+
+export function runSandboxedCaptured(
+  command: SandboxCommand,
+  { repoRoot = process.cwd(), maxOutput = 20_000 } = {},
+): { exitCode: number; output: string } {
+  const spec = sandboxSpawnSpec(command, { repoRoot });
+  const result = spawnSync(spec.command, spec.args, {
+    cwd: spec.cwd,
+    env: spec.env,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 10 * 60 * 1000,
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}${result.error ? `\n${result.error.message}` : ""}`;
+  return {
+    exitCode: result.status ?? 1,
+    output: output.length > maxOutput ? `[output truncated]\n${output.slice(-maxOutput)}` : output,
+  };
+}

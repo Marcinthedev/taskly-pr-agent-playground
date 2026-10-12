@@ -13,6 +13,7 @@ const context = {
   baseRef: "main",
   headSha: "abc123",
   mode: "tests" as const,
+  engine: "claude-code",
   model: "claude-sonnet-5-5",
   maxTurns: 40,
   timeoutMinutes: 15,

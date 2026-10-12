@@ -13,6 +13,7 @@ export interface AuditContext {
   baseRef: string;
   headSha: string;
   mode: PolicyName;
+  engine: string;
   model: string;
   maxTurns: number;
   timeoutMinutes: number;

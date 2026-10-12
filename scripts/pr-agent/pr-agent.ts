@@ -3,13 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { runAgentLoop } from "./lib/agent-loop.ts";
+import { buildSystemPrompt, buildTask, skillSummary } from "./lib/agent-prompt.ts";
 import { type AgentReport, agentUsage, type AgentUsage, finalResultText, parseAgentReport } from "./lib/agent-result.ts";
 import { buildAuditRecord } from "./lib/audit-record.ts";
 import { type ChangePlan, planChanges } from "./lib/change-plan.ts";
 import { CHANGE_POLICIES, type PolicyName, type PolicyResult } from "./lib/change-policy.ts";
 import { filesInPatch, parseNameStatus, parsePorcelainStatus } from "./lib/git-output.ts";
 import { type AreaVerification, formatUsage, lineCoverage, renderComment, summarizeVitest } from "./lib/pr-comment.ts";
-import { FORMATTERS, runSandboxed, sandboxCommand } from "./lib/sandbox.ts";
+import { openAiCompatibleChat } from "./lib/openai-chat.ts";
+import { createRepoTools } from "./lib/repo-tools.ts";
+import { FORMATTERS, runSandboxed, runSandboxedCaptured, sandboxCommand } from "./lib/sandbox.ts";
 import { isArea, TEST_FILE_PATTERN } from "./lib/test-locations.ts";
 
 type Flags = Record<string, string>;
@@ -239,7 +243,7 @@ function loadVerification(dir: string, plan: ChangePlan | null): Record<string, 
 }
 
 function audit({ flags }: Args): void {
-  allowFlags(flags, ["dir", "out", "mode", "model", "max-turns", "timeout-minutes", "status", "reason", "sha"]);
+  allowFlags(flags, ["dir", "out", "mode", "engine", "model", "max-turns", "timeout-minutes", "status", "reason", "sha"]);
   const dir = requireFlag(flags, "dir");
   const event = readJson<{
     action?: string;
@@ -259,6 +263,7 @@ function audit({ flags }: Args): void {
       baseRef: event?.pull_request?.base?.ref ?? "",
       headSha: event?.pull_request?.head?.sha ?? "",
       mode: modeFrom(flags),
+      engine: flags.engine ?? "claude-code",
       model: flags.model ?? "",
       maxTurns: Number(flags["max-turns"] ?? 0),
       timeoutMinutes: Number(flags["timeout-minutes"] ?? 0),
@@ -272,6 +277,39 @@ function audit({ flags }: Args): void {
   });
   writeJson(requireFlag(flags, "out"), record);
   console.log(JSON.stringify(record, null, 2));
+}
+
+async function agent({ flags }: Args): Promise<void> {
+  allowFlags(flags, ["dir", "agent-file", "skills-dir", "out"]);
+  const dir = requireFlag(flags, "dir");
+  const skillsDir = requireFlag(flags, "skills-dir");
+  const out = requireFlag(flags, "out");
+  const { PR_AGENT_API_BASE_URL: baseUrl, PR_AGENT_API_KEY: apiKey, MODEL: model, MAX_TURNS: maxTurns = "40" } = process.env;
+  if (!baseUrl || !apiKey || !model) throw new Error("Set PR_AGENT_API_BASE_URL, PR_AGENT_API_KEY and MODEL");
+
+  const changePlan = loadPlan(dir);
+  const skills = fs
+    .readdirSync(skillsDir)
+    .map((name) => readText(path.join(skillsDir, name, "SKILL.md")))
+    .flatMap((markdown) => (markdown ? [skillSummary(markdown)] : []))
+    .filter((skill) => skill !== null);
+
+  const result = await runAgentLoop({
+    chat: openAiCompatibleChat({ baseUrl, apiKey, model }),
+    tools: createRepoTools({
+      repoRoot,
+      plan: changePlan,
+      skillsDir,
+      runCommand: (command) => runSandboxedCaptured(command, { repoRoot }),
+    }),
+    systemPrompt: buildSystemPrompt(fs.readFileSync(requireFlag(flags, "agent-file"), "utf8"), skills),
+    task: buildTask({ plan: changePlan, diff: readText(path.join(dir, "pr.diff")) ?? "" }),
+    maxTurns: Number(maxTurns),
+  });
+  writeJson(out, result.log);
+  setOutputs({ execution_file: out });
+  console.log(`Agent ${result.completed ? "finished" : "stopped at the turn limit"}: ${formatUsage(agentUsage(result.log))}`);
+  if (!result.completed) process.exitCode = 1;
 }
 
 function report({ flags }: Args): void {
@@ -299,7 +337,7 @@ function report({ flags }: Args): void {
   else console.log(markdown);
 }
 
-const COMMANDS: Record<string, (args: Args) => void> = {
+const COMMANDS: Record<string, (args: Args) => void | Promise<void>> = {
   test: (args) => runInSandbox(args, "test"),
   typecheck: (args) => runInSandbox(args, "typecheck"),
   format: (args) => runInSandbox(args, "format"),
@@ -312,6 +350,7 @@ const COMMANDS: Record<string, (args: Args) => void> = {
   "check-patch": checkPatch,
   report,
   audit,
+  agent,
 };
 
 const [command, ...rest] = process.argv.slice(2);
@@ -321,7 +360,7 @@ if (!handler) {
   process.exitCode = 2;
 } else {
   try {
-    handler(parseArgs(rest));
+    await handler(parseArgs(rest));
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

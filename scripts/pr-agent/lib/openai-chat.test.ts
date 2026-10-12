@@ -67,7 +67,13 @@ test("reads Gemini-style error lists and caps plain-text errors", async () => {
   });
   await assert.rejects(gemini([{ role: "user", content: "hi" }], tools), /^Error: Model provider returned HTTP 400: Invalid JSON payload$/);
 
-  const plain = openAiCompatibleChat({ baseUrl: "https://example.test/v1", apiKey: "k", model: "m", fetchImpl: fakeFetch(502, "x".repeat(2_000)) });
+  const plain = openAiCompatibleChat({
+    baseUrl: "https://example.test/v1",
+    apiKey: "k",
+    model: "m",
+    fetchImpl: fakeFetch(502, "x".repeat(2_000)),
+    retries: 0,
+  });
   await assert.rejects(plain([{ role: "user", content: "hi" }], tools), (error: Error) => error.message.length < 600);
 });
 
@@ -85,4 +91,75 @@ test("rejects responses without a message", async () => {
   });
 
   await assert.rejects(chat([{ role: "user", content: "hi" }], tools), /no message/);
+});
+
+function sequencedFetch(responses: (() => Response)[], calls: { count: number }) {
+  return async () => {
+    const next = responses[Math.min(calls.count, responses.length - 1)];
+    calls.count += 1;
+    return next();
+  };
+}
+
+const ok = () => new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "done" } }] }), { status: 200 });
+const busy = (headers: Record<string, string> = {}) => () =>
+  new Response(JSON.stringify({ error: { message: "high demand" } }), { status: 503, headers });
+
+function retryingChat(responses: (() => Response)[], calls: { count: number }, delays: number[]) {
+  return openAiCompatibleChat({
+    baseUrl: "https://example.test/v1",
+    apiKey: "k",
+    model: "m",
+    fetchImpl: sequencedFetch(responses, calls),
+    retries: 3,
+    baseDelayMs: 1_000,
+    sleep: async (ms) => void delays.push(ms),
+    log: () => {},
+  });
+}
+
+test("retries overloads and rate limits with growing delays, honouring Retry-After", async () => {
+  const calls = { count: 0 };
+  const delays: number[] = [];
+  const chat = retryingChat([busy(), busy({ "retry-after": "7" }), busy(), ok], calls, delays);
+
+  const response = await chat([{ role: "user", content: "hi" }], tools);
+
+  assert.equal(response.message.content, "done");
+  assert.equal(calls.count, 4);
+  assert.deepEqual(delays, [1_000, 7_000, 4_000]);
+});
+
+test("does not retry errors that a retry cannot fix", async () => {
+  const calls = { count: 0 };
+  const chat = retryingChat([() => new Response(JSON.stringify({ error: { message: "model not found" } }), { status: 404 })], calls, []);
+
+  await assert.rejects(chat([{ role: "user", content: "hi" }], tools), /HTTP 404: model not found/);
+  assert.equal(calls.count, 1);
+});
+
+test("gives up after the last retry and reports the provider's message", async () => {
+  const calls = { count: 0 };
+  const chat = retryingChat([busy()], calls, []);
+
+  await assert.rejects(chat([{ role: "user", content: "hi" }], tools), /HTTP 503: high demand/);
+  assert.equal(calls.count, 4);
+});
+
+test("retries network failures", async () => {
+  const calls = { count: 0 };
+  const delays: number[] = [];
+  const chat = retryingChat(
+    [
+      () => {
+        throw new TypeError("fetch failed");
+      },
+      ok,
+    ],
+    calls,
+    delays,
+  );
+
+  assert.equal((await chat([{ role: "user", content: "hi" }], tools)).message.content, "done");
+  assert.deepEqual(delays, [1_000]);
 });

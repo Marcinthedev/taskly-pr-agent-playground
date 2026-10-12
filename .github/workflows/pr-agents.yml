@@ -2,7 +2,8 @@ name: PR agents
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # Add `labeled` to enable the testability agent (an extra, see SOLUTION_EXTENDED.md).
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "backend/src/**"
       - "frontend/src/**"
@@ -347,53 +348,52 @@ jobs:
           echo "status=committed" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Open the refactor as a PR into the feature branch
-        id: refactor-pr
-        if: env.MODE == 'refactor' && steps.status.outputs.status == 'verified'
-        working-directory: pr
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
-            echo "status=rejected" >> "$GITHUB_OUTPUT"
-            echo "reason=the branch moved while the agent was running; add the label again to retry" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/changes.patch" --policy refactor
-          branch="testability/pr-${PR_NUMBER}"
-          git checkout -q -b "$branch"
-          git apply --index "$RESULTS/changes.patch"
-          usage="$(node "$CLI" usage --dir "$RESULTS")"
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -q -m "refactor: extract testable logic for #${PR_NUMBER} [testability-agent]" -m "Agent usage: ${usage}"
-          git push -q --force origin "HEAD:refs/heads/$branch"
-          existing="$(gh pr list --head "$branch" --base "$HEAD_REF" --state open --json number,url --jq '.[0] // empty')"
-          if [ -n "$existing" ]; then
-            url="$(jq -r .url <<< "$existing")"; number="$(jq -r .number <<< "$existing")"
-          else
-            url="$(gh pr create --base "$HEAD_REF" --head "$branch" \
-              --title "Refactor for testability: #${PR_NUMBER}" \
-              --body "Proposed by the testability agent for #${PR_NUMBER}: logic extracted into small, tested functions. Existing tests are unchanged and pass. Review it like any PR; merge it into \`${HEAD_REF}\` to take it, or close it.")"
-            number="${url##*/}"
-          fi
-          echo "status=pr-opened" >> "$GITHUB_OUTPUT"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "number=$number" >> "$GITHUB_OUTPUT"
+      # Testability agent (extra, disabled): opens its verified refactor as a PR into the feature branch.
+      # - name: Open the refactor as a PR into the feature branch
+      #   id: refactor-pr
+      #   if: env.MODE == 'refactor' && steps.status.outputs.status == 'verified'
+      #   working-directory: pr
+      #   env:
+      #     HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      #     PR_NUMBER: ${{ github.event.pull_request.number }}
+      #     GH_TOKEN: ${{ github.token }}
+      #   run: |
+      #     set -euo pipefail
+      #     if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+      #       echo "status=rejected" >> "$GITHUB_OUTPUT"
+      #       echo "reason=the branch moved while the agent was running; add the label again to retry" >> "$GITHUB_OUTPUT"
+      #       exit 0
+      #     fi
+      #     node "$CLI" check-patch --dir "$RESULTS" --patch "$RESULTS/changes.patch" --policy refactor
+      #     branch="testability/pr-${PR_NUMBER}"
+      #     git checkout -q -b "$branch"
+      #     git apply --index "$RESULTS/changes.patch"
+      #     usage="$(node "$CLI" usage --dir "$RESULTS")"
+      #     git -c user.name="github-actions[bot]" \
+      #         -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+      #         commit -q -m "refactor: extract testable logic for #${PR_NUMBER} [testability-agent]" -m "Agent usage: ${usage}"
+      #     git push -q --force origin "HEAD:refs/heads/$branch"
+      #     existing="$(gh pr list --head "$branch" --base "$HEAD_REF" --state open --json number,url --jq '.[0] // empty')"
+      #     if [ -n "$existing" ]; then
+      #       url="$(jq -r .url <<< "$existing")"; number="$(jq -r .number <<< "$existing")"
+      #     else
+      #       url="$(gh pr create --base "$HEAD_REF" --head "$branch" \
+      #         --title "Refactor for testability: #${PR_NUMBER}" \
+      #         --body "Proposed by the testability agent for #${PR_NUMBER}: logic extracted into small, tested functions. Existing tests are unchanged and pass. Review it like any PR; merge it into \`${HEAD_REF}\` to take it, or close it.")"
+      #       number="${url##*/}"
+      #     fi
+      #     echo "status=pr-opened" >> "$GITHUB_OUTPUT"
+      #     echo "url=$url" >> "$GITHUB_OUTPUT"
+      #     echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Render report
         id: render
         env:
           RUN_STATUS: ${{ steps.status.outputs.status }}
-          COMMIT_STATUS: ${{ steps.commit.outputs.status || steps.refactor-pr.outputs.status }}
-          COMMIT_REASON: ${{ steps.commit.outputs.reason || steps.refactor-pr.outputs.reason }}
-          COMMIT_OUTCOME: ${{ env.MODE == 'refactor' && steps.refactor-pr.outcome || steps.commit.outcome }}
+          COMMIT_STATUS: ${{ steps.commit.outputs.status }}
+          COMMIT_REASON: ${{ steps.commit.outputs.reason }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
-          PR_URL: ${{ steps.refactor-pr.outputs.url }}
-          PR_NUMBER: ${{ steps.refactor-pr.outputs.number }}
           AUTO_COMMIT: ${{ vars.PR_AGENT_AUTO_COMMIT }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -405,7 +405,7 @@ jobs:
             fi
           fi
           node "$CLI" report --dir "$RESULTS" --mode "$MODE" --run-url "$RUN_URL" --out "$RUNNER_TEMP/comment.md" \
-            --status "$status" --reason "$reason" --sha "$sha" --pr-url "$PR_URL" --pr-number "$PR_NUMBER"
+            --status "$status" --reason "$reason" --sha "$sha"
           cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           { echo "reason<<REASON_EOF"; echo "$reason"; echo "REASON_EOF"; } >> "$GITHUB_OUTPUT"
@@ -427,17 +427,18 @@ jobs:
             if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
 
-      - name: Remove the testability label so it can be added again
-        if: always() && env.MODE == 'refactor'
-        continue-on-error: true
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            await github.rest.issues.removeLabel({
-              ...context.repo,
-              issue_number: context.payload.pull_request.number,
-              name: 'testability',
-            });
+      # Testability agent (extra, disabled): removes its label so it can be added again.
+      # - name: Remove the testability label so it can be added again
+      #   if: always() && env.MODE == 'refactor'
+      #   continue-on-error: true
+      #   uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      #   with:
+      #     script: |
+      #       await github.rest.issues.removeLabel({
+      #         ...context.repo,
+      #         issue_number: context.payload.pull_request.number,
+      #         name: 'testability',
+      #       });
 
       - name: Fail the check when the agent's work was not accepted
         if: steps.render.outputs.status == 'failed' || steps.render.outputs.status == 'rejected'

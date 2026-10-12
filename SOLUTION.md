@@ -9,7 +9,7 @@ I also used the same agent and skills to fill the gaps in the existing test suit
 | Backend | 58 → 107 | 55.6% → 93.7% |
 | Frontend | 23 → 83 | 55.3% → 97.5% |
 
-Two things I built beyond the task, a refactoring agent and a pre-push hook, are described separately in [SOLUTION_EXTENDED.md](SOLUTION_EXTENDED.md).
+A few things I added beyond the task, just because I enjoyed building them, are listed in [SOLUTION_EXTENDED.md](SOLUTION_EXTENDED.md). The ones that would run automatically are switched off.
 
 ## 1. Technical decisions
 
@@ -91,7 +91,7 @@ The agent then committed `f0f1ddb` as `github-actions[bot]`, with 7 test files a
 - It extended `repository.test.ts`, `todos.test.ts` and `TodosHeader.test.tsx`.
 - It created `useClearCompletedMutation.test.ts` and `queryKeys.test.ts`.
 
-CI passed on the bot's commit. The agent's own check shows as skipped there, which is correct: the agent never runs on bot commits.
+CI, which at the time also ran the full app suites, passed on the bot's commit. The agent's own check shows as skipped there, which is correct: the agent never runs on bot commits.
 
 Two lessons from this run went back into the agent:
 - The `queryKeys` test was weak. It checks that the new key sits under the `todos` prefix, which does matter, because the page's busy state depends on it. But it does that by repeating the constant instead of testing the behaviour. The planner now skips constants files, so that invariant has to be tested through the page itself.

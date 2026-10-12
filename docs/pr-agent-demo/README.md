@@ -37,8 +37,7 @@ git checkout -b demo/clear-completed
 git apply docs/pr-agent-demo/clear-completed-tasks.patch
 git add -A
 git commit -m "feat: clear completed tasks"
-# --no-verify skips the pre-push hook, which would stop this push: the feature breaks two tests on purpose
-git push --no-verify playground demo/clear-completed
+git push playground demo/clear-completed
 ```
 
 Then open a pull request in the playground repo, from `demo/clear-completed` into `main`.
@@ -54,7 +53,7 @@ In the *Actions* tab, open the *PR agents* run. The first job, *Plan, write and 
 When it's done:
 - **A comment on the PR** shows the outcome, the agent's decision and the skills it used, and the test files it wrote. It also has a table with typecheck, formatting, test results and coverage, plus the tokens and time the agent used.
 - **A new commit on the branch**, `test: add unit tests for changed code [pr-test-agent]`, from `github-actions[bot]`. Get it locally with `git pull playground demo/clear-completed`.
-- **CI turns green on that commit.** The agent's own check on it shows as skipped. That's intentional, because the agent never runs on bot commits.
+- **The agent's check on that commit shows as skipped.** That's intentional, because the agent never runs on bot commits.
 - **The run's `pr-agent-results` artifact** holds the raw files: why the run ended the way it did (`status.json`), which files were allowed (`guard.json`), the agent's report (`decision.json`), the test results, the coverage and the patch.
 
 ## 6. Things to try next

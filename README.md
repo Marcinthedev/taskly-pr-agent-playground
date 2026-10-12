@@ -10,7 +10,6 @@ You need Node.js 22.12 or newer and Docker.
 
 ```sh
 cp .env.example .env
-npm install    # at the repository root; enables the pre-push hook
 ```
 
 The quickest way to run everything is Docker Compose:

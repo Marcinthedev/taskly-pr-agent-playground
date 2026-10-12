@@ -159,20 +159,7 @@ Only the engine, the model and its credentials change.
 - Set `PR_AGENT_MODEL` to another Claude model ID, for example a larger model for harder PRs or a smaller one to save cost.
 - Prerequisite: your plan or API key has access to that model.
 
-**2. Claude through a cloud provider.** The agent stays the same. Use this when your company buys AI through AWS, Google Cloud or Azure, instead of from Anthropic directly.
-
-| Provider | What to change in the "Run the agent" step | Prerequisites |
-| --- | --- | --- |
-| Amazon Bedrock | `use_bedrock: "true"` instead of the Anthropic secret. Add a step that signs in to AWS through GitHub OIDC before it | An AWS account with Claude enabled in Bedrock, an IAM role that trusts this repository through GitHub OIDC, and the region |
-| Google Vertex AI | `use_vertex: "true"`. Add a step that signs in to Google Cloud through workload identity before it | A Google Cloud project with Claude enabled in Vertex AI, a workload identity pool for this repository, and the region |
-| Microsoft Foundry | `use_foundry: "true"`, plus the Foundry resource name | An Azure subscription with Claude deployed in Foundry, and its credentials |
-
-For all three:
-- **Job permission:** the generate job needs `id-token: write`, so it can request the short-lived sign-in token.
-- **Model ID:** `PR_AGENT_MODEL` must use the provider's model ID, which differs from Anthropic's.
-- **No stored key:** you no longer keep a long-lived API key in GitHub secrets.
-
-**3. Any other model: ChatGPT, Gemini, Llama and others.** Built in, no code change.
+**2. Any other model: ChatGPT, Gemini, Llama and others.** Built in, no code change.
 - **How:** the `openai-compatible` engine is a small agent loop of our own in [scripts/pr-agent/lib/agent-loop.ts](scripts/pr-agent/lib/agent-loop.ts). It talks to any API that follows OpenAI's chat-completions format with tool calling, which most providers offer.
 - **Same agent, same skills:** it reads the same `test-engineer.md` and skills, and the model loads skills through a `load_skill` tool.
 - **Same boundaries, enforced in code:** no web or shell access. Files can be read except `.env`, `.git` and `node_modules`, writes are limited to test files, and commands go through the sandboxed runner. The guard and verification run after it as usual.
@@ -282,7 +269,6 @@ For all three:
   - replace the static token with short-lived credentials (workload identity federation)
 - **Spend fewer tokens:**
   - only look at commits since the last run
-  - skip trivial changes and already-covered lines
   - give the agent the context it needs up front, instead of letting it search
 - **Improve testability, not just tests:** some code is hard to test because of how it's written. I built a second agent for this. It pulls logic out into small, pure functions and opens the result as a separate PR. It's switched off for now; see [SOLUTION_EXTENDED.md](SOLUTION_EXTENDED.md).
 - **Reuse and observability:**

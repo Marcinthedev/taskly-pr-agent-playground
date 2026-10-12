@@ -77,18 +77,24 @@ flowchart TD
    - `ANTHROPIC_API_KEY`, or
    - `PR_AGENT_API_KEY`, for a non-Claude model (see "Using other models or providers").
 
-**Optional repository variables**
+**Settings**
+- **Secrets** (keys and tokens) are repository secrets only, never files.
+- **Everything else** lives in [.github/pr-agent/pr-agent.env](.github/pr-agent/pr-agent.env), committed with the code:
+  - The workflow reads it from the base branch, so a PR can't change the model or send the key somewhere else.
+  - A repository variable with the same name overrides the file, for switching without a commit.
+  - Values are checked before the agent starts. An unknown key or a bad value fails the run with a clear message.
 
-| Variable | Default | Purpose |
+| Setting | Default | Purpose |
 | --- | --- | --- |
-| `PR_AGENT_ALLOWED_USERS` | the repository owner | GitHub logins allowed to start the agent, comma-separated |
 | `PR_AGENT_ENGINE` | `claude-code` | `openai-compatible` runs the agent on any model with an OpenAI-style API |
-| `PR_AGENT_API_BASE_URL` | none | The model API's address, for the `openai-compatible` engine |
+| `PR_AGENT_API_BASE_URL` | empty | The model API's address, for the `openai-compatible` engine |
 | `PR_AGENT_MODEL` | `claude-sonnet-5-5` | The model the agent runs on |
 | `PR_AGENT_MAX_TURNS` | `40` | The agent's turn limit |
-| `PR_AGENT_TIMEOUT_MINUTES` | `15` | The agent's time limit |
+| `PR_AGENT_TIMEOUT_MINUTES` | `15` | The agent's time limit, at most 25 |
 | `PR_AGENT_AUTO_COMMIT` | `true` | `false` gives a patch file instead of a commit |
 | `PR_AGENT_KEEP_TRANSCRIPT` | `false` | `true` keeps the agent's full transcript for 14 days. Best on private repositories |
+
+`PR_AGENT_ALLOWED_USERS` is the one exception: it stays a repository variable, because GitHub checks it before any code is checked out. It lists the GitHub logins allowed to start the agent, comma-separated, and defaults to the repository owner.
 
 **Trigger:** open or update a non-draft PR, from a branch in the same repository, that changes app source.
 
@@ -130,7 +136,7 @@ For all three:
 - **Same boundaries, enforced in code:** no web or shell access. Files can be read except `.env`, `.git` and `node_modules`, writes are limited to test files, and commands go through the sandboxed runner. The guard and verification run after it as usual.
 - **Setup:**
   1. Add the provider's key as the repository secret `PR_AGENT_API_KEY`.
-  2. Set the repository variables:
+  2. In `pr-agent.env` (or as repository variables), set:
      - `PR_AGENT_ENGINE` to `openai-compatible`
      - `PR_AGENT_API_BASE_URL` to the API address
      - `PR_AGENT_MODEL` to the provider's model ID

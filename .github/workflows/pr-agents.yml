@@ -19,10 +19,6 @@ env:
   # pull_request.base.sha can lag behind the branch tip, so tooling and diffs use the branch name.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-  ENGINE: ${{ vars.PR_AGENT_ENGINE || 'claude-code' }}
-  MODEL: ${{ vars.PR_AGENT_MODEL || 'claude-sonnet-5-5' }}
-  MAX_TURNS: ${{ vars.PR_AGENT_MAX_TURNS || '40' }}
-  AGENT_TIMEOUT_MINUTES: ${{ vars.PR_AGENT_TIMEOUT_MINUTES || '15' }}
 
 jobs:
   skip-notice:
@@ -94,6 +90,12 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+
+      - name: Load agent settings
+        id: config
+        env:
+          VARS: ${{ toJSON(vars) }}
+        run: node "$CLI" config --file "$TRUSTED/.github/pr-agent/pr-agent.env"
 
       - name: Plan which source files changed
         id: plan
@@ -214,14 +216,14 @@ jobs:
         continue-on-error: true
         timeout-minutes: ${{ fromJSON(env.AGENT_TIMEOUT_MINUTES) }}
         env:
-          PR_AGENT_API_BASE_URL: ${{ vars.PR_AGENT_API_BASE_URL }}
+          PR_AGENT_API_BASE_URL: ${{ env.API_BASE_URL }}
           PR_AGENT_API_KEY: ${{ secrets.PR_AGENT_API_KEY }}
         run: |
           node "$CLI" agent --dir "$RESULTS" --out "$RUNNER_TEMP/agent-execution.json" \
             --agent-file "$TRUSTED/.claude/agents/test-engineer.md" --skills-dir "$TRUSTED/.claude/skills"
 
       - name: Keep the agent transcript
-        if: always() && vars.PR_AGENT_KEEP_TRANSCRIPT == 'true' && (steps.agent.outputs.execution_file || steps.agent-generic.outputs.execution_file)
+        if: always() && env.KEEP_TRANSCRIPT == 'true' && (steps.agent.outputs.execution_file || steps.agent-generic.outputs.execution_file)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-agent-transcript
@@ -279,6 +281,7 @@ jobs:
       - name: Record the run status
         if: always()
         env:
+          CONFIG: ${{ steps.config.outcome }}
           PLAN: ${{ steps.plan.outcome }}
           NEEDS_TESTS: ${{ steps.plan.outputs.needs_tests }}
           AGENT: ${{ env.ENGINE == 'claude-code' && steps.agent.outcome || steps.agent-generic.outcome }}
@@ -288,7 +291,8 @@ jobs:
           INTEGRITY: ${{ steps.integrity.outcome }}
         run: |
           mkdir -p "$RESULTS"
-          if [ "$PLAN" != "success" ]; then status=failed; reason="the change plan could not be computed"
+          if [ "$CONFIG" != "success" ]; then status=failed; reason="the agent settings are invalid; see the Load agent settings step"
+          elif [ "$PLAN" != "success" ]; then status=failed; reason="the change plan could not be computed"
           elif [ "$NEEDS_TESTS" != "true" ]; then status=skipped; reason="no unit-testable application source changed"
           elif [ "$GUARD" = "failure" ]; then status=rejected; reason="the agent changed files outside its policy, so its work was discarded"
           elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete"
@@ -332,7 +336,9 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}
           path: trusted
           persist-credentials: false
-          sparse-checkout: scripts/pr-agent
+          sparse-checkout: |
+            .github/pr-agent
+            scripts/pr-agent
 
       - name: Read run status
         id: status
@@ -342,8 +348,13 @@ jobs:
           echo "CLI=$GITHUB_WORKSPACE/trusted/scripts/pr-agent/pr-agent.ts" >> "$GITHUB_ENV"
           echo "status=$(jq -r .status "$RESULTS/status.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Load agent settings
+        env:
+          VARS: ${{ toJSON(vars) }}
+        run: node "$CLI" config --file "$GITHUB_WORKSPACE/trusted/.github/pr-agent/pr-agent.env"
+
       - name: Check out the PR branch
-        if: steps.status.outputs.status == 'verified' && (env.MODE == 'refactor' || vars.PR_AGENT_AUTO_COMMIT != 'false')
+        if: steps.status.outputs.status == 'verified' && (env.MODE == 'refactor' || env.AUTO_COMMIT != 'false')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
@@ -352,7 +363,7 @@ jobs:
 
       - name: Commit verified tests to the PR branch
         id: commit
-        if: env.MODE == 'tests' && steps.status.outputs.status == 'verified' && vars.PR_AGENT_AUTO_COMMIT != 'false'
+        if: env.MODE == 'tests' && steps.status.outputs.status == 'verified' && env.AUTO_COMMIT != 'false'
         working-directory: pr
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -419,7 +430,6 @@ jobs:
           COMMIT_REASON: ${{ steps.commit.outputs.reason }}
           COMMIT_OUTCOME: ${{ steps.commit.outcome }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
-          AUTO_COMMIT: ${{ vars.PR_AGENT_AUTO_COMMIT }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           status="$RUN_STATUS"; reason="$(jq -r '.reason // ""' "$RESULTS/status.json")"; sha=""

@@ -17,7 +17,7 @@ In the playground repo, go to *Settings → Secrets and variables → Actions*, 
 
 If you'd rather not do it by hand, `/install-github-app` in the Claude Code CLI sets up the secret for you. The workflow only needs the secret; it talks to GitHub with the built-in `GITHUB_TOKEN`.
 
-You can also set two optional variables under *Variables*: `PR_AGENT_MODEL` to choose the model, and `PR_AGENT_AUTO_COMMIT=false` to get the tests as a patch file instead of a commit.
+Other settings live in `.github/pr-agent/pr-agent.env`, for example the model, or `PR_AGENT_AUTO_COMMIT=false` to get the tests as a patch file instead of a commit. A repository variable with the same name overrides the file.
 
 ## 3. Push the code
 

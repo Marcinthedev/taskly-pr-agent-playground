@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resolveAgentConfig } from "./lib/agent-config.ts";
 import { runAgentLoop } from "./lib/agent-loop.ts";
 import { buildSystemPrompt, buildTask, skillSummary } from "./lib/agent-prompt.ts";
 import { type AgentReport, agentUsage, type AgentUsage, finalResultText, parseAgentReport } from "./lib/agent-result.ts";
@@ -93,6 +94,16 @@ function runInSandbox({ positional, flags }: Args, action: string): void {
   allowFlags(flags, []);
   const [area, ...files] = positional;
   process.exitCode = runSandboxed(sandboxCommand(action, area, files), { repoRoot });
+}
+
+function config({ flags }: Args): void {
+  allowFlags(flags, ["file"]);
+  const variables = JSON.parse(process.env.VARS || "{}") as Record<string, unknown>;
+  const resolved = resolveAgentConfig(fs.readFileSync(requireFlag(flags, "file"), "utf8"), variables);
+  if (process.env.GITHUB_ENV) {
+    fs.appendFileSync(process.env.GITHUB_ENV, `${Object.entries(resolved).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
+  }
+  console.log(JSON.stringify(resolved, null, 2));
 }
 
 function plan({ flags }: Args): void {
@@ -338,6 +349,7 @@ function report({ flags }: Args): void {
 }
 
 const COMMANDS: Record<string, (args: Args) => void | Promise<void>> = {
+  config,
   test: (args) => runInSandbox(args, "test"),
   typecheck: (args) => runInSandbox(args, "typecheck"),
   format: (args) => runInSandbox(args, "format"),

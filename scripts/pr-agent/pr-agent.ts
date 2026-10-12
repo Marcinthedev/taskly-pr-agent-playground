@@ -104,6 +104,10 @@ function config({ flags }: Args): void {
     fs.appendFileSync(process.env.GITHUB_ENV, `${Object.entries(resolved).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
   }
   console.log(JSON.stringify(resolved, null, 2));
+  const overridden = Object.entries(variables)
+    .filter(([name, value]) => name.startsWith("PR_AGENT_") && name !== "PR_AGENT_ALLOWED_USERS" && String(value).trim())
+    .map(([name]) => name);
+  console.log(`Overridden by repository variables: ${overridden.join(", ") || "none"}`);
 }
 
 function plan({ flags }: Args): void {

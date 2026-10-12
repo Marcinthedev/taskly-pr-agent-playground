@@ -144,7 +144,7 @@ For all three:
   | Provider | `PR_AGENT_API_BASE_URL` | Example `PR_AGENT_MODEL` |
   | --- | --- | --- |
   | OpenAI (ChatGPT models) | `https://api.openai.com/v1` | `gpt-5` |
-  | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-pro` |
+  | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` |
   | OpenRouter (many vendors) | `https://openrouter.ai/api/v1` | `openai/gpt-5` |
   | Self-hosted (Ollama, vLLM) | your server's `/v1` address, HTTPS unless it's on the runner | the model you serve |
 

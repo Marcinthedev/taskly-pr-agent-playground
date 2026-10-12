@@ -26,9 +26,7 @@ export function TodoEditor({
       if (todo === 'new') await createTodo.mutateAsync(input)
       else await updateTodo.mutateAsync({ id: todo.id, input })
       onSaved(todo === 'new' ? 'New task added.' : 'Changes saved.')
-    } catch {
-      // The mutation exposes the server error to the form and permits retrying.
-    }
+    } catch {}
   }
 
   return (

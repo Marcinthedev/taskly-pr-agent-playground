@@ -1,4 +1,3 @@
-/* Layout only. Component appearance is owned by src/design-system. */
 .page-layout {
   max-width: var(--layout-content);
   margin-inline: auto;

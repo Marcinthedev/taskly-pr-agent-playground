@@ -1,7 +1,6 @@
 import { css } from 'styled-components'
 import type { IconButtonSize, IconButtonState } from './IconButton.types'
 
-/** Visual styles mapped by icon button variant. */
 export const iconButtonVariantStyles = {
   solid: css`
     background: ${({ theme }) => theme.colors.surfaceAlt};
@@ -23,7 +22,6 @@ export const iconButtonVariantStyles = {
   `,
 } as const
 
-/** Visual styles mapped by icon button size. */
 export const iconButtonSizeStyles: Record<
   IconButtonSize,
   ReturnType<typeof css>
@@ -45,7 +43,6 @@ export const iconButtonSizeStyles: Record<
   `,
 }
 
-/** Visual styles mapped by icon button interaction state. */
 export const iconButtonStateStyles: Record<
   IconButtonState,
   ReturnType<typeof css>

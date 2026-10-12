@@ -26,7 +26,6 @@ export type Chat = (messages: ChatMessage[], tools: ToolSpec[]) => Promise<ChatR
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 const MAX_ERROR_CHARS = 500;
-// Rate limits, overloads and gateway hiccups are usually gone within a minute.
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_RETRY_DELAY_MS = 60_000;
 
@@ -45,9 +44,7 @@ function providerError(body: string): string {
     const first = Array.isArray(parsed) ? parsed[0] : parsed;
     const error = (first as { error?: { message?: unknown } } | null)?.error;
     if (typeof error?.message === "string") message = error.message;
-  } catch {
-    // Not JSON: keep the raw text.
-  }
+  } catch {}
   return message.replace(/\s+/g, " ").trim().slice(0, MAX_ERROR_CHARS);
 }
 

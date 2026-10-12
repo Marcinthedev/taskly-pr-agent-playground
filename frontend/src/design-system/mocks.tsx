@@ -15,12 +15,8 @@ import type {
   TextProps,
 } from './index'
 
-// Import this module from an async vi.mock factory, since vi.mock is hoisted:
-// vi.mock('../design-system', () => import('../design-system/mocks'))
-// Keep it out of the production barrel; these mocks are only for Vitest.
 export { theme } from './theme/theme'
 
-// Strip design-system props while preserving native attributes and callbacks.
 const designProps = new Set([
   'variant',
   'size',

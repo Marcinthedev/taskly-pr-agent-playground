@@ -5,7 +5,6 @@ import { Heading } from '../Heading'
 import type { DrawerProps } from './Drawer.types'
 import { Content, Header, Overlay, Panel } from './Drawer.styles'
 
-/** Side drawer with native focus management and dismissal blocked while busy. */
 export function Drawer({
   title,
   isOpen,

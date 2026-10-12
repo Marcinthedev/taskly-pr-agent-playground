@@ -1,9 +1,6 @@
 import { BaseButton } from './Button.styles'
 import type { ButtonProps, ButtonState } from './Button.types'
 
-/**
- * Design-system button with semantic variant, size, and interaction state.
- */
 export function Button({
   variant = 'primary',
   size = 'medium',

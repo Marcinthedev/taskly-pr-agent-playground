@@ -13,7 +13,6 @@ interface BaseButtonStyleProps {
   $fullWidth?: boolean
 }
 
-/** Styled primitive used by the public Button component. */
 export const BaseButton = styled.button<BaseButtonStyleProps>`
   display: inline-flex;
   align-items: center;

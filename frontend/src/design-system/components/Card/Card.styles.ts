@@ -6,7 +6,6 @@ interface BaseCardStyleProps {
   $variant: CardVariant
 }
 
-/** Styled primitive used by the public Card component. */
 export const BaseCard = styled.div<BaseCardStyleProps>`
   padding: ${({ theme }) => theme.spacing.lg};
   border-radius: ${({ theme }) => theme.radii.lg};

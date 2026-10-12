@@ -1,32 +1,27 @@
 import styled from 'styled-components'
 
-/** Wrapper for the checkbox group. */
 export const Group = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.spacing.sm};
 `
 
-/** Layout container for checkbox items. */
 export const List = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.spacing.sm};
 `
 
-/** Group label text. */
 export const Label = styled.span`
   font-size: 0.9rem;
   font-weight: 600;
   color: ${({ theme }) => theme.colors.inkStrong};
 `
 
-/** Row layout for label with optional tooltip icon. */
 export const LabelRow = styled.div`
   display: inline-flex;
   align-items: center;
   gap: ${({ theme }) => theme.spacing.xs};
 `
 
-/** Inline tooltip trigger icon used in labels. */
 export const TooltipIcon = styled.span`
   position: relative;
   display: inline-flex;
@@ -68,7 +63,6 @@ export const TooltipIcon = styled.span`
   }
 `
 
-/** Helper or error text displayed below the group. */
 export const Helper = styled.span<{ $hasError?: boolean }>`
   font-size: 0.85rem;
   color: ${({ theme, $hasError }) =>

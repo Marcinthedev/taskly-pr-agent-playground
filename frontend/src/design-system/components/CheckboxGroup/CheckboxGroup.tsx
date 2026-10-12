@@ -9,9 +9,6 @@ import {
   TooltipIcon,
 } from './CheckboxGroup.styles'
 
-/**
- * Checkbox group with optional helper/error text and label tooltip.
- */
 export function CheckboxGroup({
   label,
   tooltip,

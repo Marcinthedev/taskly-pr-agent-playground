@@ -11,9 +11,6 @@ import {
   TooltipIcon,
 } from './Select.styles'
 
-/**
- * Select field with label, helper/error text, tooltip, and locked state support.
- */
 export function Select({
   label,
   hint,

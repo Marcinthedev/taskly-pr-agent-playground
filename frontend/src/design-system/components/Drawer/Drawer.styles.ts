@@ -1,6 +1,5 @@
 import styled from 'styled-components'
 
-/** Native modal surface provides focus containment and an inert background. */
 export const Overlay = styled.dialog`
   position: fixed;
   inset: 0;

@@ -1,6 +1,5 @@
 import styled from 'styled-components'
 
-/** Application chrome shares the same surfaces and borders as the other components. */
 export const BaseAppHeader = styled.header`
   display: flex;
   align-items: center;

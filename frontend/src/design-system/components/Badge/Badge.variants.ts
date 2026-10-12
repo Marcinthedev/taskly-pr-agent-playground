@@ -1,7 +1,6 @@
 import { css } from 'styled-components'
 import type { BadgeVariant } from './Badge.types'
 
-/** Visual styles mapped by badge variant. */
 export const badgeVariantStyles: Record<
   BadgeVariant,
   ReturnType<typeof css>

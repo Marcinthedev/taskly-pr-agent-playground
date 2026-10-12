@@ -6,7 +6,6 @@ interface BaseBadgeStyleProps {
   $variant: BadgeVariant
 }
 
-/** Styled primitive used by the public Badge component. */
 export const BaseBadge = styled.span<BaseBadgeStyleProps>`
   display: inline-flex;
   align-items: center;

@@ -6,7 +6,6 @@ import { record, todo } from './fixture.ts';
 afterEach(() => vi.restoreAllMocks());
 
 function setup() {
-  // Construct the real Prisma delegate, but mock its IO: no PostgreSQL is needed.
   const database = createDatabase('postgresql://test:test@localhost:5432/test');
   return { database, repository: new TodoRepository(database) };
 }

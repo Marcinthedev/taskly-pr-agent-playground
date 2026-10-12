@@ -12,7 +12,6 @@ interface BaseIconButtonStyleProps {
   $state: IconButtonState
 }
 
-/** Styled primitive used by the public IconButton component. */
 export const BaseIconButton = styled.button<BaseIconButtonStyleProps>`
   display: inline-flex;
   align-items: center;

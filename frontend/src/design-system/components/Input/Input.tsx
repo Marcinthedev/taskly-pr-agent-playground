@@ -12,9 +12,6 @@ import {
   TooltipIcon,
 } from './Input.styles'
 
-/**
- * Text input or textarea field with label, helper/error text, tooltip, and locked state support.
- */
 export function Input({
   label,
   hint,

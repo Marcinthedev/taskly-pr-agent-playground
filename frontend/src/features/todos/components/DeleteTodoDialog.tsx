@@ -20,9 +20,7 @@ export function DeleteTodoDialog({
     try {
       await deleteTodo.mutateAsync(todo.id)
       onDeleted()
-    } catch {
-      // Keep confirmation open so the server error is visible and retry is possible.
-    }
+    } catch {}
   }
   return (
     <Drawer isOpen title="Delete task?" busy={pending} onClose={onClose}>

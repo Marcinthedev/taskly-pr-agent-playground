@@ -1,7 +1,6 @@
 import { css } from 'styled-components'
 import type { ButtonSize, ButtonState, ButtonVariant } from './Button.types'
 
-/** Visual styles mapped by button variant. */
 export const buttonVariantStyles: Record<
   ButtonVariant,
   ReturnType<typeof css>
@@ -44,7 +43,6 @@ export const buttonVariantStyles: Record<
   `,
 }
 
-/** Visual styles mapped by button size. */
 export const buttonSizeStyles: Record<ButtonSize, ReturnType<typeof css>> = {
   small: css`
     padding: 8px 14px;
@@ -60,7 +58,6 @@ export const buttonSizeStyles: Record<ButtonSize, ReturnType<typeof css>> = {
   `,
 }
 
-/** Visual styles mapped by button interaction state. */
 export const buttonStateStyles: Record<ButtonState, ReturnType<typeof css>> = {
   normal: css`
     opacity: 1;

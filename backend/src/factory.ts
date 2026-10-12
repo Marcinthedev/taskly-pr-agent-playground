@@ -24,14 +24,12 @@ export function createApp(
   const app = express();
 
   app.disable("x-powered-by");
-  // HTTPS upgrades belong to the TLS-terminating proxy; here they'd break /docs over plain HTTP.
   app.use(helmet({ contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } } }));
   if (corsOrigins.length) {
     app.use(cors({ origin: corsOrigins, methods: ["GET", "POST", "PATCH", "DELETE"] }));
   }
   app.enable("case sensitive routing");
   app.enable("strict routing");
-  // One proxy (nginx) in front; trusting more hops would let clients spoof their IP.
   app.set("trust proxy", 1);
 
   app.use((req, res, next) => {

@@ -16,7 +16,6 @@ concurrency:
 
 env:
   MODE: ${{ github.event.action == 'labeled' && 'refactor' || 'tests' }}
-  # pull_request.base.sha can lag behind the branch tip, so tooling and diffs use the branch name.
   BASE_REF: ${{ github.event.pull_request.base.ref }}
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
@@ -123,7 +122,6 @@ jobs:
         run: |
           set -euo pipefail
           sudo useradd --create-home --shell /usr/sbin/nologin "$PR_AGENT_SANDBOX_USER"
-          # The sandbox user may pass through the runner home to reach the checkout, but not list or read it.
           dir="$GITHUB_WORKSPACE"
           while [ "$dir" != "/" ]; do sudo chmod o+x "$dir"; dir="$(dirname "$dir")"; done
           sudo find "$HOME" -mindepth 1 -maxdepth 1 ! -name work ! -type l -exec chmod go-rwx {} +

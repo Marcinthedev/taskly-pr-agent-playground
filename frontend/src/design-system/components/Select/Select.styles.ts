@@ -1,31 +1,26 @@
 import styled from 'styled-components'
 
-/** Wrapper for the full field block. */
 export const Field = styled.div`
   display: grid;
   gap: ${({ theme }) => theme.spacing.xs};
 `
 
-/** Relative wrapper used to place suffix icons inside controls. */
 export const ControlShell = styled.div`
   position: relative;
 `
 
-/** Field label text. */
 export const Label = styled.label`
   font-size: 0.9rem;
   font-weight: 600;
   color: ${({ theme }) => theme.colors.inkStrong};
 `
 
-/** Row layout for label with optional tooltip icon. */
 export const LabelRow = styled.div`
   display: inline-flex;
   align-items: center;
   gap: ${({ theme }) => theme.spacing.xs};
 `
 
-/** Inline tooltip trigger icon used in labels. */
 export const TooltipIcon = styled.span`
   position: relative;
   display: inline-flex;
@@ -67,7 +62,6 @@ export const TooltipIcon = styled.span`
   }
 `
 
-/** Decorative lock icon shown when the field is in locked mode. */
 export const LockIcon = styled.span`
   position: absolute;
   right: 34px;
@@ -83,7 +77,6 @@ interface SelectStyleProps {
   $isLocked: boolean
 }
 
-/** Styled select control. */
 export const Control = styled.select<SelectStyleProps>`
   width: 100%;
   padding: 12px 14px;
@@ -119,7 +112,6 @@ export const Control = styled.select<SelectStyleProps>`
   }
 `
 
-/** Helper or error text displayed below the field. */
 export const Helper = styled.span<{ $hasError: boolean }>`
   font-size: 0.85rem;
   color: ${({ theme, $hasError }) =>

@@ -4,7 +4,6 @@ import type { Todo, TodoInput } from '../types'
 export const todosApi = {
   list: (signal?: AbortSignal) => request<Todo[]>('/todos', { signal }),
   create: (input: TodoInput) => {
-    // A form initialized with a Todo must never send read-only fields.
     const { title, description, priority, due_date, completed } = input
     return request<Todo>('/todos', {
       method: 'POST',

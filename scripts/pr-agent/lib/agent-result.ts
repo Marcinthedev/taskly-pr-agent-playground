@@ -76,7 +76,6 @@ export function agentUsage(log: unknown): AgentUsage | null {
   const result = resultEntry(log);
   if (!result || !Array.isArray(log)) return null;
 
-  // `usage` only covers the coordinating agent; `modelUsage` includes subagents.
   const models = isRecord(result.modelUsage) ? Object.values(result.modelUsage).filter(isRecord) : [];
   const sum = (field: string) => (models.length ? models.reduce((total, model) => total + (finite(model[field]) ?? 0), 0) : null);
   const usage = isRecord(result.usage) ? result.usage : {};

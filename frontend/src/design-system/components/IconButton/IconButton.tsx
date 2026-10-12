@@ -1,9 +1,6 @@
 import { BaseIconButton } from './IconButton.styles'
 import type { IconButtonProps, IconButtonState } from './IconButton.types'
 
-/**
- * Compact button for icon-only actions with variant, size, and state controls.
- */
 export function IconButton({
   variant = 'solid',
   size = 'medium',

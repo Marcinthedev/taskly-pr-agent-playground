@@ -36,9 +36,7 @@ export function TodosPage() {
           ? 'Another task complete. Well done!'
           : 'Task marked as active.',
       )
-    } catch {
-      // Display the mutation error in the page alert.
-    }
+    } catch {}
   }
   async function retry() {
     toggleTodo.reset()

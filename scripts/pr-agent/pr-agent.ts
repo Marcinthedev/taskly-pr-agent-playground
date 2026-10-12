@@ -25,7 +25,6 @@ interface Args {
 
 const repoRoot = process.cwd();
 const MAX_DIFF_BYTES = 400_000;
-// Written by the workflow or by claude-code-action (which parks PR copies of .claude/ in .claude-pr/); never part of a patch.
 const MANAGED_PATHS = [".pr-agent/", ".claude/", ".claude-pr/"];
 
 function parseArgs(argv: string[]): Args {
@@ -147,7 +146,6 @@ function verify({ positional, flags }: Args): void {
 
   const phase = flags.baseline ? "before" : "after";
   const testsJson = path.join(dir, flags.baseline ? `${area}-tests-before.json` : `${area}-tests.json`);
-  // Sandboxed output goes to a fresh folder: tests can't touch --dir, and nothing created by the sandbox user needs deleting.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pr-agent-out-"));
   fs.chmodSync(scratch, 0o777);
   const scratchJson = path.join(scratch, "tests.json");
@@ -174,11 +172,8 @@ function verify({ positional, flags }: Args): void {
   if (fs.existsSync(summary)) fs.copyFileSync(summary, path.join(dir, `${area}-coverage-${phase}.json`));
   try {
     fs.rmSync(scratch, { recursive: true, force: true });
-  } catch {
-    // Folders created by the sandbox user may not be removable here; the runner is discarded anyway.
-  }
+  } catch {}
 
-  // Coverage thresholds can fail a run whose tests all passed, so judge by the results file, not the exit code.
   const testsOk = vitestPassed(readJson(testsJson));
   const label = (ok: boolean) => (ok ? "success" : "failure");
   console.log(`${area} ${phase}: typecheck=${label(typecheckOk)} format=${label(formatOk)} tests=${label(testsOk)}`);

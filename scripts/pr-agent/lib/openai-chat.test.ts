@@ -44,7 +44,7 @@ test("sends an OpenAI-style chat completion request with tools and returns the m
   assert.deepEqual(response.usage, { inputTokens: 120, outputTokens: 30 });
 });
 
-test("reports provider errors by status without echoing the key", async () => {
+test("reports the provider's error message without echoing the key", async () => {
   const chat = openAiCompatibleChat({
     baseUrl: "https://example.test/v1",
     apiKey: "sk-secret",
@@ -53,10 +53,22 @@ test("reports provider errors by status without echoing the key", async () => {
   });
 
   await assert.rejects(chat([{ role: "user", content: "hi" }], tools), (error: Error) => {
-    assert.match(error.message, /HTTP 401/);
-    assert.doesNotMatch(error.message, /sk-secret/);
+    assert.equal(error.message, "Model provider returned HTTP 401: bad key [redacted]");
     return true;
   });
+});
+
+test("reads Gemini-style error lists and caps plain-text errors", async () => {
+  const gemini = openAiCompatibleChat({
+    baseUrl: "https://example.test/v1",
+    apiKey: "k",
+    model: "m",
+    fetchImpl: fakeFetch(400, [{ error: { code: 400, message: "Invalid JSON payload", status: "INVALID_ARGUMENT" } }]),
+  });
+  await assert.rejects(gemini([{ role: "user", content: "hi" }], tools), /^Error: Model provider returned HTTP 400: Invalid JSON payload$/);
+
+  const plain = openAiCompatibleChat({ baseUrl: "https://example.test/v1", apiKey: "k", model: "m", fetchImpl: fakeFetch(502, "x".repeat(2_000)) });
+  await assert.rejects(plain([{ role: "user", content: "hi" }], tools), (error: Error) => error.message.length < 600);
 });
 
 test("rejects plain-http endpoints except on localhost", () => {

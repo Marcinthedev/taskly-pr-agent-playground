@@ -293,10 +293,21 @@ function audit({ flags }: Args): void {
 async function agent({ flags }: Args): Promise<void> {
   allowFlags(flags, ["dir", "agent-file", "skills-dir", "out"]);
   const dir = requireFlag(flags, "dir");
+  const errorFile = path.join(dir, "agent-error.txt");
+  try {
+    await runGenericAgent(dir, flags);
+  } catch (error) {
+    fs.writeFileSync(errorFile, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function runGenericAgent(dir: string, flags: Flags): Promise<void> {
   const skillsDir = requireFlag(flags, "skills-dir");
   const out = requireFlag(flags, "out");
-  const { PR_AGENT_API_BASE_URL: baseUrl, PR_AGENT_API_KEY: apiKey, MODEL: model, MAX_TURNS: maxTurns = "40" } = process.env;
-  if (!baseUrl || !apiKey || !model) throw new Error("Set PR_AGENT_API_BASE_URL, PR_AGENT_API_KEY and MODEL");
+  const { PR_AGENT_API_BASE_URL: baseUrl = "", PR_AGENT_API_KEY: apiKey = "", MODEL: model = "", MAX_TURNS: maxTurns = "40" } = process.env;
+  const missing = Object.entries({ PR_AGENT_API_BASE_URL: baseUrl, PR_AGENT_API_KEY: apiKey, MODEL: model }).filter(([, value]) => !value);
+  if (missing.length) throw new Error(`Missing ${missing.map(([name]) => name).join(", ")} (secrets go in repository secrets, settings in pr-agent.env)`);
 
   const changePlan = loadPlan(dir);
   const skills = fs
@@ -320,7 +331,7 @@ async function agent({ flags }: Args): Promise<void> {
   writeJson(out, result.log);
   setOutputs({ execution_file: out });
   console.log(`Agent ${result.completed ? "finished" : "stopped at the turn limit"}: ${formatUsage(agentUsage(result.log))}`);
-  if (!result.completed) process.exitCode = 1;
+  if (!result.completed) throw new Error(`The agent stopped at the turn limit (${maxTurns}) without a report`);
 }
 
 function report({ flags }: Args): void {

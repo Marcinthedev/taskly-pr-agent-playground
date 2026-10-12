@@ -25,6 +25,21 @@ export type Chat = (messages: ChatMessage[], tools: ToolSpec[]) => Promise<ChatR
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
+const MAX_ERROR_CHARS = 500;
+
+function providerError(body: string): string {
+  let message = body;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    const error = (first as { error?: { message?: unknown } } | null)?.error;
+    if (typeof error?.message === "string") message = error.message;
+  } catch {
+    // Not JSON: keep the raw text.
+  }
+  return message.replace(/\s+/g, " ").trim().slice(0, MAX_ERROR_CHARS);
+}
+
 export function openAiCompatibleChat({
   baseUrl,
   apiKey,
@@ -51,7 +66,10 @@ export function openAiCompatibleChat({
       body: JSON.stringify({ model, messages, tools, tool_choice: "auto" }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) throw new Error(`Model provider returned HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = providerError(await response.text()).split(apiKey).join("[redacted]");
+      throw new Error(`Model provider returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
 
     const payload = (await response.json()) as {
       choices?: { message?: ChatMessage }[];

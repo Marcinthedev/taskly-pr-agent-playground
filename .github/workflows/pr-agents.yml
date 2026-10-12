@@ -291,11 +291,13 @@ jobs:
           INTEGRITY: ${{ steps.integrity.outcome }}
         run: |
           mkdir -p "$RESULTS"
+          agent_error=""
+          if [ -f "$RESULTS/agent-error.txt" ]; then agent_error=": $(head -c 500 "$RESULTS/agent-error.txt" | tr '\n' ' ')"; fi
           if [ "$CONFIG" != "success" ]; then status=failed; reason="the agent settings are invalid; see the Load agent settings step"
           elif [ "$PLAN" != "success" ]; then status=failed; reason="the change plan could not be computed"
           elif [ "$NEEDS_TESTS" != "true" ]; then status=skipped; reason="no unit-testable application source changed"
           elif [ "$GUARD" = "failure" ]; then status=rejected; reason="the agent changed files outside its policy, so its work was discarded"
-          elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete"
+          elif [ "$CHANGED" != "true" ] && [ "$AGENT" != "success" ]; then status=failed; reason="the agent run did not complete${agent_error}"
           elif [ "$CHANGED" != "true" ] && [ ! -f "$RESULTS/decision.json" ]; then status=failed; reason="the agent made no changes and returned no report; see the agent step log"
           elif [ "$CHANGED" != "true" ]; then status=skipped; reason="the agent decided no changes were needed"
           elif [ "$VERIFY" != "success" ]; then status=rejected; reason="the changes failed typecheck, formatting or the test suite"

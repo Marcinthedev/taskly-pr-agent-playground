@@ -4,9 +4,13 @@ import { Button, Heading, Text } from '../../../design-system'
 export function TodosHeader({
   disabled,
   onCreate,
+  completedCount = 0,
+  onClearCompleted,
 }: {
   disabled: boolean
   onCreate: () => void
+  completedCount?: number
+  onClearCompleted?: () => void
 }) {
   return (
     <section className="row spread" aria-labelledby="page-title">
@@ -14,10 +18,21 @@ export function TodosHeader({
         <Heading id="page-title">Tasks</Heading>
         <Text muted>Create, organize, and complete tasks.</Text>
       </div>
-      <Button disabled={disabled} onClick={onCreate}>
-        <Plus size={18} aria-hidden="true" />
-        New task
-      </Button>
+      <div className="row compact">
+        {onClearCompleted && (
+          <Button
+            variant="secondary"
+            disabled={disabled || completedCount === 0}
+            onClick={onClearCompleted}
+          >
+            Clear completed ({completedCount})
+          </Button>
+        )}
+        <Button disabled={disabled} onClick={onCreate}>
+          <Plus size={18} aria-hidden="true" />
+          New task
+        </Button>
+      </div>
     </section>
   )
 }

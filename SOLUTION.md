@@ -72,17 +72,56 @@ flowchart TD
 
 **Prerequisites**
 1. This code on the repository's default branch.
-2. A repository secret with the model credential:
-   - `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token` with a Claude Pro or Max plan, or
-   - `ANTHROPIC_API_KEY`, or
-   - `PR_AGENT_API_KEY`, for a non-Claude model (see "Using other models or providers").
+2. The model's credential as a repository secret (see "Secrets" below).
+3. The agent chosen in [.github/pr-agent/pr-agent.env](.github/pr-agent/pr-agent.env). Claude Code is the default.
 
-**Settings**
-- **Secrets** (keys and tokens) are repository secrets only, never files.
-- **Everything else** lives in [.github/pr-agent/pr-agent.env](.github/pr-agent/pr-agent.env), committed with the code:
-  - The workflow reads it from the base branch, so a PR can't change the model or send the key somewhere else.
-  - A repository variable with the same name overrides the file, for switching without a commit.
-  - Values are checked before the agent starts. An unknown key or a bad value fails the run with a clear message.
+**Choosing the agent**
+
+Set the three agent lines in `pr-agent.env`, add the matching secret, and push to the default branch:
+
+| Agent | `PR_AGENT_ENGINE` | `PR_AGENT_API_BASE_URL` | `PR_AGENT_MODEL` | Repository secret |
+| --- | --- | --- | --- | --- |
+| **Claude, Pro or Max plan (default)** | `claude-code` | empty | `claude-sonnet-5-5` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| Claude, API key | `claude-code` | empty | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| Google Gemini (free tier) | `openai-compatible` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` | `PR_AGENT_API_KEY` |
+| OpenAI (ChatGPT models) | `openai-compatible` | `https://api.openai.com/v1` | `gpt-5` | `PR_AGENT_API_KEY` |
+| Groq (free tier) | `openai-compatible` | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` | `PR_AGENT_API_KEY` |
+| OpenRouter (`:free` models) | `openai-compatible` | `https://openrouter.ai/api/v1` | `qwen/qwen3-coder:free` | `PR_AGENT_API_KEY` |
+
+- **More presets:** Mistral, DeepSeek, xAI and self-hosted servers are listed at the bottom of `pr-agent.env`.
+- **Model IDs change:** if a run fails with HTTP 404, the PR comment quotes the provider's message, which usually names the replacement model.
+- **Other Claude models:** `claude-opus-5-5` suits harder PRs and `claude-haiku-5-5` costs less.
+
+**Switching from Gemini (or any other model) to Claude**
+1. In `pr-agent.env`, set:
+   - `PR_AGENT_ENGINE=claude-code`
+   - `PR_AGENT_API_BASE_URL=`
+   - `PR_AGENT_MODEL=claude-sonnet-5-5`
+2. Make sure the secret `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) exists. `PR_AGENT_API_KEY` can stay; it's ignored.
+3. Delete any repository variables named `PR_AGENT_ENGINE`, `PR_AGENT_API_BASE_URL` or `PR_AGENT_MODEL`, since they override the file.
+4. Push to the default branch, then push to the PR (an empty commit is enough) to run it again.
+
+Going the other way works the same: copy a row from the table, and add `PR_AGENT_API_KEY`.
+
+**Secrets**
+
+Add them under the repository's **Settings → Secrets and variables → Actions → Secrets → New repository secret**.
+
+| Secret | Needed for | Where to get it |
+| --- | --- | --- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude, Pro or Max plan | Run `claude setup-token` |
+| `ANTHROPIC_API_KEY` | Claude, API billing | console.anthropic.com |
+| `PR_AGENT_API_KEY` | every `openai-compatible` agent | The provider's console, e.g. Google AI Studio for Gemini |
+
+- **Never in files:** keys live only in GitHub secrets. The settings check rejects any unknown name in `pr-agent.env`, such as `PR_AGENT_API_KEY`.
+- **Only the agent step sees them,** and never the sandboxed install and test runs.
+- **Not for forks:** GitHub gives fork PRs no secrets, and the workflow skips them.
+- **Base URL locked:** the API address comes from the base branch, so a PR can't redirect the key to another server.
+
+**Other settings**
+- **Same file:** they also live in `pr-agent.env`, and the workflow reads it from the base branch.
+- **Overrides:** a repository variable with the same name overrides the file, for switching without a commit.
+- **Checked first:** values are validated before the agent starts. An unknown key, a key set twice or a bad value fails the run with a clear message.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -134,22 +173,8 @@ For all three:
 - **How:** the `openai-compatible` engine is a small agent loop of our own in [scripts/pr-agent/lib/agent-loop.ts](scripts/pr-agent/lib/agent-loop.ts). It talks to any API that follows OpenAI's chat-completions format with tool calling, which most providers offer.
 - **Same agent, same skills:** it reads the same `test-engineer.md` and skills, and the model loads skills through a `load_skill` tool.
 - **Same boundaries, enforced in code:** no web or shell access. Files can be read except `.env`, `.git` and `node_modules`, writes are limited to test files, and commands go through the sandboxed runner. The guard and verification run after it as usual.
-- **Setup:**
-  1. Add the provider's key as the repository secret `PR_AGENT_API_KEY`.
-  2. In `pr-agent.env` (or as repository variables), set:
-     - `PR_AGENT_ENGINE` to `openai-compatible`
-     - `PR_AGENT_API_BASE_URL` to the API address
-     - `PR_AGENT_MODEL` to the provider's model ID
-
-  | Provider | `PR_AGENT_API_BASE_URL` | Example `PR_AGENT_MODEL` |
-  | --- | --- | --- |
-  | OpenAI (ChatGPT models) | `https://api.openai.com/v1` | `gpt-5` |
-  | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` |
-  | OpenRouter (many vendors) | `https://openrouter.ai/api/v1` | `openai/gpt-5` |
-  | Self-hosted (Ollama, vLLM) | your server's `/v1` address, HTTPS unless it's on the runner | the model you serve |
-
-  The full list of ready-to-copy presets, including Claude, Mistral, DeepSeek and xAI, is at the bottom of [pr-agent.env](.github/pr-agent/pr-agent.env).
-
+- **Setup:** pick a row from "Choosing the agent" above.
+- **Reliability:** busy or rate-limited providers (HTTP 429, 5xx) are retried up to five times with growing delays. Any other error stops the run, and the PR comment quotes it.
 - **Prerequisites:**
   - the model supports tool calling
   - the provider's terms allow sending your code to it
@@ -232,7 +257,11 @@ For all three:
 - **Fork PRs are skipped,** because they get no secrets.
 - **Large PRs** can hit the turn or time limit. The run then fails cleanly, and normal CI isn't affected.
 - **No secret scan.** The patch isn't scanned for secrets before it's committed.
-- **The `openai-compatible` engine** is covered by unit tests and a local smoke test with a fake provider. The example run used Claude Code; I haven't run it against a real non-Claude provider yet.
+- **The `openai-compatible` engine has no completed real run yet.**
+  - It's covered by unit tests and a local smoke test with a fake provider.
+  - On GitHub Actions, Gemini accepted the settings, the key and the request format.
+  - Those runs stopped on a retired model ID (HTTP 404) and then a provider overload (HTTP 503). Both are now handled: the error is quoted in the PR comment, and overloads are retried.
+  - The example run in section 4 used Claude Code.
 
 ## 7. What I'd change for production
 

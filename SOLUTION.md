@@ -95,6 +95,40 @@ flowchart TD
 - **`pr-agent-results` artifact** with the raw files, kept 14 days.
 - **`pr-agent-audit` artifact,** kept 90 days: who ran it, on which commits, with which model and limits, what changed, the verification result, the cost and the outcome.
 
+### Using other models or providers
+
+What carries over unchanged in every case:
+- **The deterministic tooling:** planner, guard, sandbox, verification, report and audit.
+- **The skills' content:** what to test, how, and what a good test is.
+- **The workflow's security setup.**
+
+Only the "Run the agent" step and the agent's credentials change.
+
+**1. Another Claude model.** No code change.
+- Set `PR_AGENT_MODEL` to another Claude model ID, for example a larger model for harder PRs or a smaller one to save cost.
+- Prerequisite: your plan or API key has access to that model.
+
+**2. Claude through a cloud provider.** The agent stays the same. Use this when your company buys AI through AWS, Google Cloud or Azure, instead of from Anthropic directly.
+
+| Provider | What to change in the "Run the agent" step | Prerequisites |
+| --- | --- | --- |
+| Amazon Bedrock | `use_bedrock: "true"` instead of the Anthropic secret. Add a step that signs in to AWS through GitHub OIDC before it | An AWS account with Claude enabled in Bedrock, an IAM role that trusts this repository through GitHub OIDC, and the region |
+| Google Vertex AI | `use_vertex: "true"`. Add a step that signs in to Google Cloud through workload identity before it | A Google Cloud project with Claude enabled in Vertex AI, a workload identity pool for this repository, and the region |
+| Microsoft Foundry | `use_foundry: "true"`, plus the Foundry resource name | An Azure subscription with Claude deployed in Foundry, and its credentials |
+
+For all three:
+- **Job permission:** the generate job needs `id-token: write`, so it can request the short-lived sign-in token.
+- **Model ID:** `PR_AGENT_MODEL` must use the provider's model ID, which differs from Anthropic's.
+- **No stored key:** you no longer keep a long-lived API key in GitHub secrets.
+
+**3. A non-Claude model** (an OpenAI or Gemini model, or a self-hosted one). The agent runtime itself changes, because claude-code-action only runs Claude. What then needs to be done:
+1. **Replace the "Run the agent" step** with that vendor's coding-agent CLI or GitHub Action, for example the Codex CLI or the Gemini CLI. It must be able to run in CI without prompts.
+2. **Port the agent and skills** into that tool's instruction format, for example an `AGENTS.md` file. The content stays the same.
+3. **Restrict the tools again:** no web access, file edits allowed, and shell commands limited to `node scripts/pr-agent/pr-agent.ts test|typecheck|format` and read-only git. The sandbox and the guard keep protecting the run, whatever the tool's own permission model allows.
+4. **Keep the report contract.** The agent must end with the same fenced JSON report, and `scripts/pr-agent/lib/agent-result.ts` needs a reader for the new tool's run log, so that decision and usage are still extracted.
+5. **Add the vendor's credentials** as a repository secret, and make sure its terms allow sending your code to it.
+6. **Re-run the example PR** and compare decision quality, cost and run time before switching for real.
+
 ## 3. Where the agent and skills are defined, and how they're used
 
 | What | Where | Role in a run |

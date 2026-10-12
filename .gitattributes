@@ -1,4 +1,2 @@
-# Demo patches must stay byte-exact for git apply.
-docs/pr-agent-demo/*.patch -text
 # Git hooks run under sh, which breaks on CRLF line endings.
 .husky/* text eol=lf

@@ -100,10 +100,11 @@ flowchart TD
 | What | Where | Role in a run |
 | --- | --- | --- |
 | `test-engineer` agent | [.claude/agents/test-engineer.md](.claude/agents/test-engineer.md) | Analyses the change, writes tests, verifies them, and reports in a fixed JSON format |
-| `pr-change-analysis` skill | [.claude/skills/](.claude/skills) | Decides for each changed file whether to write a test, update one or skip it, and why |
-| `unit-test-quality` skill | same | What a good unit test is |
-| `backend-unit-tests`, `frontend-unit-tests` skills | same | This repo's test conventions: what to fake and how |
-| `test-verification` skill | same | The run-fix-repeat loop, formatting and typecheck |
+| `pr-change-analysis` skill | [.claude/skills/pr-change-analysis](.claude/skills/pr-change-analysis/SKILL.md) | Decides for each changed file whether to write a test, update one or skip it, and why |
+| `unit-test-quality` skill | [.claude/skills/unit-test-quality](.claude/skills/unit-test-quality/SKILL.md) | What a good unit test is |
+| `backend-unit-tests` skill | [.claude/skills/backend-unit-tests](.claude/skills/backend-unit-tests/SKILL.md) | This repo's backend test conventions: what to fake and how |
+| `frontend-unit-tests` skill | [.claude/skills/frontend-unit-tests](.claude/skills/frontend-unit-tests/SKILL.md) | This repo's frontend test conventions: what to mock and how |
+| `test-verification` skill | [.claude/skills/test-verification](.claude/skills/test-verification/SKILL.md) | The run-fix-repeat loop, formatting and typecheck |
 | Workflow | [.github/workflows/pr-agents.yml](.github/workflows/pr-agents.yml) | Runs everything and enforces the boundaries |
 | Tooling | [scripts/pr-agent/](scripts/pr-agent) | Planner, guard, sandboxed runner, report and audit record. A separate TypeScript package with its own tests |
 
